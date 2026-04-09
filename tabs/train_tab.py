@@ -715,9 +715,22 @@ class TrainTab(QWidget):
         self._thread.log.connect(self._append_log)
         self._thread.trial_score.connect(self._update_curve)
         self._thread.done.connect(self._on_done)
-        self._thread.done.connect(
-            lambda r: self.sig_done.emit(
-                r, X_te_s, y_te, X_tr_s, y_tr, X_all_s, y))
+
+        # Wrap sig_done emission in a try/except so that any exception inside
+        # _on_train_done_inner (MainWindow side) cannot escape the lambda into
+        # PyQt5's C++ slot dispatcher.  An unguarded exception there would call
+        # sys.excepthook which — if itself nested inside exec_() — may terminate
+        # the process.
+        def _forward_results(r):
+            try:
+                self.sig_done.emit(r, X_te_s, y_te, X_tr_s, y_tr, X_all_s, y)
+            except Exception:
+                import traceback
+                self._append_log(
+                    f'\n[ERROR] Post-training update failed:\n'
+                    f'{traceback.format_exc()}')
+
+        self._thread.done.connect(_forward_results)
         self._thread.start()
 
     def _append_log(self, text):
@@ -795,15 +808,22 @@ class TrainTab(QWidget):
         if self._get_opt() == 'none':
             self._show_curve_placeholder_manual(results)
 
-        # Auto-popup summary dialog
+        # Auto-popup summary dialog.
+        # IMPORTANT: use show() instead of exec_() to avoid creating a nested
+        # Qt event loop inside the done-signal slot.  exec_() would cause the
+        # second done-connected slot (the sig_done lambda) to be dispatched
+        # *inside* the nested loop; any exception escaping that lambda bypasses
+        # all Python try/except blocks and kills the process.  show() keeps the
+        # dialog modeless and returns immediately, so the entire signal chain
+        # completes before Qt processes any more events.
         if results:
-            dlg = _TrainSummaryDialog(
+            self._summary_dlg = _TrainSummaryDialog(
                 results,
                 opt_strategy=self._get_opt(),
                 feat_cols=self.feat_cols or [],
                 save_fn=self._save_selected_models,
                 parent=self)
-            dlg.exec_()
+            self._summary_dlg.show()
 
     def _show_curve_placeholder_manual(self, results):
         """For Fixed Parameters mode: populate the summary table and switch to it."""

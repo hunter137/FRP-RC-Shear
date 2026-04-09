@@ -294,6 +294,14 @@ def _factory_for(name, seed, use_gpu=False):
         def _mlp_factory(**p):
             n        = int(p.pop('hidden_layer_sizes_n', 128))
             max_iter = int(p.pop('max_iter', 2000))   # honour catalogue value
+            # early_stopping=True lets MLPRegressor stop before max_iter when
+            # the validation loss plateaus.  This shortens the BLAS-intensive
+            # training loop and significantly reduces the window in which MKL
+            # can trigger an Access Violation on Windows.
+            # Only inject defaults — user-supplied values in **p take priority.
+            p.setdefault('early_stopping',      True)
+            p.setdefault('validation_fraction',  0.1)
+            p.setdefault('n_iter_no_change',     20)
             return MLPRegressor(hidden_layer_sizes=(n, n//2),
                                 max_iter=max_iter, random_state=seed, **p)
         return _mlp_factory

@@ -68,8 +68,17 @@ class _TLBOMultiThread(QThread):
         import warnings
         from sklearn.exceptions import ConvergenceWarning
         warnings.filterwarnings('ignore', category=ConvergenceWarning)
+
         try:
-            self._run_tasks()
+            from threadpoolctl import threadpool_limits as _tpl
+            _blas_ctx = _tpl(limits=1, user_api='blas')
+        except ImportError:
+            from contextlib import nullcontext
+            _blas_ctx = nullcontext()
+
+        try:
+            with _blas_ctx:
+                self._run_tasks()
         except Exception:
             import traceback
             self.log_line.emit(f'[FATAL] Multi-TLBO error:\n{traceback.format_exc()}')
@@ -177,9 +186,25 @@ class TrainingThread(QThread):
         from sklearn.exceptions import ConvergenceWarning
         warnings.filterwarnings('ignore', category=ConvergenceWarning)
 
+        # threadpoolctl gives us a *runtime* BLAS thread cap that works even
+        # when the MKL/OpenBLAS thread pool has already been initialised (which
+        # makes plain os.environ assignments ineffective).  This is the primary
+        # guard against MLPRegressor triggering a C++ Access Violation on
+        # Windows — limiting BLAS to a single thread eliminates the race
+        # condition in MKL's internal memory allocator that causes the crash.
+        try:
+            from threadpoolctl import threadpool_limits as _tpl
+            _blas_ctx = _tpl(limits=1, user_api='blas')
+        except ImportError:
+            # threadpoolctl not available (shouldn't happen — it ships with
+            # scikit-learn); fall back to a no-op context manager.
+            from contextlib import nullcontext
+            _blas_ctx = nullcontext()
+
         results = {}
         try:
-            self._run_inner(results)
+            with _blas_ctx:
+                self._run_inner(results)
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
