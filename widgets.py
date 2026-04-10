@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 
-# ── Matplotlib backend ───────────────────────────────────────────────
+# Matplotlib backend
 # Import matplotlib BEFORE setting the backend, and guard against the
 # backend already being set (e.g. when running tests or in a Jupyter
 # notebook where the backend is managed externally).
@@ -32,7 +32,6 @@ from config import (
     C_BORDER, C_BORDER_LT, C_DANGER,
     C_SUCCESS, C_SUCCESS_BG, C_PANEL_BG,
 )
-
 
 def flat_btn(text, accent=False, danger=False, width=None):
     """
@@ -66,7 +65,6 @@ def flat_btn(text, accent=False, danger=False, width=None):
         btn.setFixedWidth(width)
     return btn
 
-
 def panel(title=''):
     """
     Section panel — bold black title, thin border, white bg.
@@ -80,7 +78,6 @@ def panel(title=''):
         f'padding:0 4px;color:{C_TEXT};'
         f'font-size:13px;font-weight:bold;}}')
     return g
-
 
 def result_box(text):
     """
@@ -96,7 +93,6 @@ def result_box(text):
         f'border:1px solid #A8D5A8;')
     return lbl
 
-
 def _stat_textbox(text):
     """Inline informational note — light tint, fine border."""
     lbl = QLabel(text)
@@ -105,7 +101,6 @@ def _stat_textbox(text):
         f'background:{C_ACCENT_BG};color:{C_TEXT2};font-size:11px;'
         f'padding:5px 8px;border:1px solid {C_BORDER_LT};')
     return lbl
-
 
 class MplCanvas(FigureCanvas):
     def __init__(self, parent=None, width=7, height=5, dpi=110):
@@ -116,7 +111,6 @@ class MplCanvas(FigureCanvas):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setStyleSheet(f'border:1px solid {C_BORDER_LT};'
                            f'background:#FFFFFF;')
-
 
 def _spin_field(label_text, widget, unit=''):
     """

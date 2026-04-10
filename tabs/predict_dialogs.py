@@ -219,9 +219,7 @@ class PredictionSetupDialog(QDialog):
     def get_extra_bundle_selection(self) -> dict:
         return {norm: cb.isChecked() for norm, cb in self._bundle_cbs.items()}
 
-# ══════════════════════════════════════════════════════════════════════
 #  BatchPredictionDialog  — data-source lock + full multi-bundle model selector
-# ══════════════════════════════════════════════════════════════════════
 class BatchPredictionDialog(QDialog):
     """
     Batch Prediction Setup dialog.
@@ -267,9 +265,7 @@ class BatchPredictionDialog(QDialog):
         if initial_path:
             self._load_file(initial_path)
 
-    # ═══════════════════════════════════════════════════════════════
     # UI
-    # ═══════════════════════════════════════════════════════════════
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setSpacing(12)
@@ -400,9 +396,7 @@ class BatchPredictionDialog(QDialog):
         btn_row.addWidget(can_btn)
         root.addLayout(btn_row)
 
-    # ═══════════════════════════════════════════════════════════════
     # Model checkbox rebuild — scans ALL bundles
-    # ═══════════════════════════════════════════════════════════════
     def _rebuild_model_checkboxes(self):
         """
         Scan every .frpmdl file in the models/ directory.
@@ -581,9 +575,7 @@ class BatchPredictionDialog(QDialog):
         self._bundle_count_lbl.setText(
             f'{n_bundles} bundle(s) found  ·  {total_models} algorithm(s) total')
 
-    # ═══════════════════════════════════════════════════════════════
     # Helpers
-    # ═══════════════════════════════════════════════════════════════
     def _toggle_all(self):
         all_cbs = list(self._model_cbs.values()) + list(self._bundle_cbs.values())
         target  = not all(cb.isChecked() for cb in all_cbs)

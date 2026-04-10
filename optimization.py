@@ -1,30 +1,15 @@
 """
-optimization.py — Hyperparameter search strategies.
+optimization.py — Hyperparameter search backends.
 
-Includes: parameter-space definitions, TLBO, Bayesian (Optuna TPE),
-and NSGA-II (pymoo) multi-objective search.
-
-Compatibility notes
--------------------
-* sklearn  : OneHotEncoder — `sparse` (< 1.2) vs `sparse_output` (≥ 1.2).
-             Handled via _ohe_kwargs() helper at the bottom of this file.
-* XGBoost  : GPU kwarg changed in v2.0.
-             v1.x: tree_method='gpu_hist'
-             v2.x: device='cuda'
-             _xgb_gpu_kwargs() detects version and returns the right dict.
-* pymoo    : API reshuffled between 0.5.x and 0.6.x.
-             get_termination() moved; DefaultMultiObjectiveTermination
-             constructor signature changed.  We try both import paths.
-* optuna   : suggest_float(log=...) is stable since 2.x.  No issues.
-* scipy    : pearsonr handled in metrics.py — not used here directly.
+Implements TLBO (Rao et al. 2011), Bayesian TPE via Optuna, and
+NSGA-II via pymoo.  Also provides model factory functions and
+parameter space definitions for all supported algorithms.
 """
 import numpy as np
 from sklearn.ensemble import (
     RandomForestRegressor, GradientBoostingRegressor,
     ExtraTreesRegressor, AdaBoostRegressor,
 )
-from sklearn.neural_network import MLPRegressor
-from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.model_selection import cross_val_score
 from config import HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_PYMOO
@@ -72,20 +57,16 @@ NSGA2_OBJECTIVES = {
     'mean_ratio': ('Mean ratio  (|k̄ − 1.0| minimised)',   'ratio'),
 }
 
-# sklearn < 1.2 : OneHotEncoder(sparse=False)
-# sklearn >= 1.2: OneHotEncoder(sparse_output=False)
+# sklearn < 1.2 uses sparse=False; >= 1.2 uses sparse_output=False.
 def _ohe_sparse_kwarg():
-    """Return the correct {kwarg: False} dict for the installed sklearn."""
+    """Return the correct sparse keyword for OneHotEncoder."""
     import sklearn
     from packaging.version import Version
     try:
-        ver = Version(sklearn.__version__)
-        if ver >= Version('1.2'):
+        if Version(sklearn.__version__) >= Version('1.2'):
             return {'sparse_output': False}
-        else:
-            return {'sparse': False}
+        return {'sparse': False}
     except Exception:
-        # packaging not available — try both, accept whichever works
         from sklearn.preprocessing import OneHotEncoder
         try:
             OneHotEncoder(sparse_output=False)
@@ -93,8 +74,7 @@ def _ohe_sparse_kwarg():
         except TypeError:
             return {'sparse': False}
 
-# XGBoost < 2.0 : tree_method='gpu_hist'
-# XGBoost >= 2.0: device='cuda'
+# XGBoost >= 2.0 renamed tree_method='gpu_hist' to device='cuda'.
 def _xgb_gpu_kwargs():
     """Return the correct GPU kwargs dict for the installed XGBoost."""
     if not HAS_XGB:
@@ -110,13 +90,6 @@ def _xgb_gpu_kwargs():
         # Fall back to the new API; if it fails at runtime XGBoost will warn
         return {'device': 'cuda'}
 
-# Root cause of negative R² during initialisation:
-#   n_estimators_min * lr_min was too small (50 * 0.01 = 0.5).
-#   The gradient-boosted model barely moves from its initial prediction,
-#   giving R² close to or below zero.
-# Fix: raise n_estimators floor to 200 and lr floor to 0.03.
-# All paper-optimal values remain inside these narrower ranges.
-
 def _ps_gbdt():
     """GBDT — Table 3-1.  Optimal (paper): n_est=2300, depth=3, lr=0.15, split=50, leaf=1."""
     return [
@@ -128,10 +101,7 @@ def _ps_gbdt():
     ]
 
 def _ps_xgb():
-    """XGBoost — Table 3-2.  Optimal (paper): n_est=3000, depth=9, lr=0.12, mcw=2.
-    max_leaves replaced with subsample (standard, stable regularisation param).
-    min_child_weight capped at 30 to avoid degenerate trees during random init.
-    """
+    """XGBoost — Table 3-2.  Optimal (paper): n_est=3000, depth=9, lr=0.12, mcw=2."""
     return [
         ('n_estimators',     200,  3000, True),
         ('max_depth',          3,    12, True),
@@ -187,26 +157,13 @@ PARAM_SPACES = {
                            ('learning_rate',0.01,2.0,False)],
     'KNN':       lambda: [('n_neighbors',2,20,True),
                            ('leaf_size',10,60,True)],
-    'MLP':       lambda: [('alpha',1e-5,0.1,False),
-                           ('learning_rate_init',1e-4,0.1,False)],
-    'SVR':       lambda: [('C',0.1,100.0,False),
-                           ('epsilon',0.01,1.0,False)],
 }
 
-# These models parallelise *internally* on GPU — running cross_val_score
-# with n_jobs=-1 would spawn multiple processes that fight over the same
-# VRAM, causing deadlocks and massive overhead.  For GPU models we always
-# use cv_n_jobs=1 (sequential folds) in _score_vec / cross_val_score.
+# GPU-capable models use n_jobs=1 for CV to avoid multi-process VRAM contention.
 _GPU_CAPABLE = {'XGBoost', 'LightGBM', 'CatBoost'}
 
 def _lgb_gpu_kwargs():
-    """
-    LightGBM GPU device kwarg — version-aware.
-
-    LightGBM < 4.0 : device='gpu'
-    LightGBM >= 4.0: device_type='gpu'   (device= was renamed)
-    We try the new name first; fall back to the old one.
-    """
+    """LightGBM GPU device kwarg — version-aware (device_type >= 4.0, device < 4.0)."""
     if not HAS_LGB:
         return {}
     try:
@@ -220,16 +177,7 @@ def _lgb_gpu_kwargs():
         return {'device': 'gpu'}
 
 def _factory_for(name, seed, use_gpu=False):
-    """Return a model-constructor callable.
-
-    use_gpu : if True and the model supports it, inject CUDA/GPU parameters.
-              GPU kwargs are version-aware (see _xgb_gpu_kwargs() /
-              _lgb_gpu_kwargs()).
-
-    GPU models (XGBoost, LightGBM, CatBoost) are parallelised internally;
-    n_jobs is set to 1 for them to avoid VRAM contention when multiple
-    cross-validation folds are spawned as separate processes.
-    """
+    """Return a callable(**params) -> fitted model for the given algorithm."""
     if name == 'GBDT':
         # Paper uses min_samples_leaf (1-10) — pass through directly
         return lambda **p: GradientBoostingRegressor(random_state=seed, **p)
@@ -277,7 +225,8 @@ def _factory_for(name, seed, use_gpu=False):
         def _make_cat_cpu(_seed=seed):
             def _factory(**p):
                 return cb.CatBoostRegressor(
-                    random_state=_seed, verbose=0, **_prep_cat(p))
+                    random_state=_seed, verbose=0,
+                    thread_count=-1, **_prep_cat(p))
             return _factory
         return _make_cat_cpu()
     if name == 'Random Forest':
@@ -290,23 +239,6 @@ def _factory_for(name, seed, use_gpu=False):
         return lambda **p: AdaBoostRegressor(random_state=seed, **p)
     if name == 'KNN':
         return lambda **p: KNeighborsRegressor(n_jobs=-1, **p)
-    if name == 'MLP':
-        def _mlp_factory(**p):
-            n        = int(p.pop('hidden_layer_sizes_n', 128))
-            max_iter = int(p.pop('max_iter', 2000))   # honour catalogue value
-            # early_stopping=True lets MLPRegressor stop before max_iter when
-            # the validation loss plateaus.  This shortens the BLAS-intensive
-            # training loop and significantly reduces the window in which MKL
-            # can trigger an Access Violation on Windows.
-            # Only inject defaults — user-supplied values in **p take priority.
-            p.setdefault('early_stopping',      True)
-            p.setdefault('validation_fraction',  0.1)
-            p.setdefault('n_iter_no_change',     20)
-            return MLPRegressor(hidden_layer_sizes=(n, n//2),
-                                max_iter=max_iter, random_state=seed, **p)
-        return _mlp_factory
-    if name == 'SVR':
-        return lambda **p: SVR(**p)
     raise ValueError(f'Unknown algorithm: {name}')
 
 def _score_vec(vec, space, factory, X, y, cv, stop_flag=None, cv_n_jobs=-1):
@@ -413,28 +345,29 @@ def _optuna_optimize(factory, space, X, y, cv=5,
                      n_trials=50, seed=42,
                      log_fn=None, stop_flag=None, score_fn=None,
                      n_startup_trials=10, multivariate=False,
-                     cv_n_jobs=-1, early_stop=True, patience=80):
-    """
-    Bayesian hyperparameter search via Optuna TPE sampler.
-
-    early_stop : if True, halt once *patience* consecutive trials pass
-                 with no improvement in best CV R².
-    patience   : number of no-improvement trials before early stopping.
-    """
+                     cv_n_jobs=-1, early_stop=True, patience=80,
+                     n_parallel_trials=1):
+    """Bayesian hyperparameter search via Optuna TPE sampler."""
     if not HAS_OPTUNA:
         if log_fn:
             log_fn('    [WARN] optuna not installed — pip install optuna')
         return ({n: (int(round((lo+hi)/2)) if is_int else (lo+hi)/2)
                  for n, lo, hi, is_int in space}, 0.0, [])
+
+    import threading
+    _lock = threading.Lock()
+
     history  = []
     best_so  = [-np.inf]
-    no_improve_count = [0]   # consecutive trials without improvement
+    no_improve_count = [0]
 
     if log_fn:
-        log_fn(f'    Startup (random) trials : {n_startup_trials}')
-        log_fn(f'    Multivariate TPE        : {"yes" if multivariate else "no"}')
+        log_fn(f'    Startup trials: {n_startup_trials}, '
+               f'multivariate: {"yes" if multivariate else "no"}')
         if early_stop:
-            log_fn(f'    Early Stop              : enabled  (patience={patience})')
+            log_fn(f'    Early stopping enabled (patience={patience})')
+        if n_parallel_trials > 1:
+            log_fn(f'    Parallel trials: {n_parallel_trials}')
 
     def objective(trial):
         if stop_flag and stop_flag():
@@ -445,35 +378,35 @@ def _optuna_optimize(factory, space, X, y, cv=5,
                          else trial.suggest_float(
                              n, lo, hi, log=(lo > 0 and hi / lo > 10)))
         try:
-            val = float(cross_val_score(
-                factory(**params), X, y,
-                cv=cv, scoring='r2', n_jobs=cv_n_jobs).mean())
+            import joblib as _jlib
+            with _jlib.parallel_backend('loky', n_jobs=cv_n_jobs):
+                val = float(cross_val_score(
+                    factory(**params), X, y,
+                    cv=cv, scoring='r2', n_jobs=cv_n_jobs).mean())
         except Exception:
             val = -1.0
 
-        # Track improvement for early stopping
-        if val > best_so[0] + 1e-6:
-            best_so[0] = val
-            no_improve_count[0] = 0
-        else:
-            no_improve_count[0] += 1
+        with _lock:
+            if val > best_so[0] + 1e-6:
+                best_so[0] = val
+                no_improve_count[0] = 0
+            else:
+                no_improve_count[0] += 1
+            history.append((trial.number, best_so[0]))
+            cur_best = best_so[0]
+            cur_no_improve = no_improve_count[0]
 
-        history.append((trial.number, best_so[0]))
         if score_fn:
-            score_fn(trial.number + 1, best_so[0])
+            score_fn(trial.number + 1, cur_best)
         if log_fn and trial.number % 10 == 0:
-            log_fn(f'    [INFO] Bayesian trial {trial.number:03d} — '
-                   f'best CV R² = {best_so[0]:.4f}')
+            log_fn(f'    [INFO] trial {trial.number:03d}  best CV R² = {cur_best:.4f}')
 
-        # Trigger early stop (only after startup phase is done)
         if (early_stop
                 and trial.number >= n_startup_trials
-                and no_improve_count[0] >= patience):
+                and cur_no_improve >= patience):
             if log_fn:
-                log_fn(
-                    f'    [INFO] Early stop at trial {trial.number} — '
-                    f'no improvement for {patience} consecutive trials '
-                    f'(best CV R² = {best_so[0]:.4f})')
+                log_fn(f'    [INFO] Early stop at trial {trial.number} '
+                       f'(best CV R² = {cur_best:.4f})')
             trial.study.stop()
 
         return val
@@ -485,7 +418,9 @@ def _optuna_optimize(factory, space, X, y, cv=5,
             n_startup_trials=n_startup_trials,
             multivariate=multivariate,
         ))
-    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+    study.optimize(objective, n_trials=n_trials,
+                   n_jobs=n_parallel_trials,
+                   show_progress_bar=False)
     return study.best_params, study.best_value, history
 
 def nsga2_optimize(factory, space, X_tr, X_te, y_tr, y_te,

@@ -54,7 +54,7 @@ class DataTab(QWidget):
             'use the mapping dialog to connect your data)')
         self.path_edit.setReadOnly(True)
         browse_btn = flat_btn('Browse …')
-        load_btn   = flat_btn('Load & Map Columns', accent=True)
+        load_btn   = flat_btn('Load and Map Columns', accent=True)
         browse_btn.clicked.connect(self._browse)
         load_btn.clicked.connect(self._load)
         file_row.addWidget(self.path_edit)

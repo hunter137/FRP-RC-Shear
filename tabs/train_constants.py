@@ -10,9 +10,9 @@ _CURVE_PALETTE      Colour palette for the live optimisation curve
 _is_available       Returns True when an optional backend library is installed
 """
 from sklearn.preprocessing import OneHotEncoder
-from config import HAS_XGB, HAS_LGB, HAS_CAT, HAS_TORCH
+from config import HAS_XGB, HAS_LGB, HAS_CAT
 
-# ── PyQt5 — complete import set inherited from the original train_tab ──
+# PyQt5 — complete import set inherited from the original train_tab
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QLabel, QCheckBox, QSpinBox, QDoubleSpinBox, QComboBox,
@@ -26,14 +26,14 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal, QSize
 from PyQt5.QtGui import QFont, QColor, QPixmap, QPainter, QPen, QBrush
 
-# ── config — complete set ──────────────────────────────────────────────
+# config — complete set
 from config import (
     APP_VERSION, _SHAP_BUNDLE_SAMPLES,
     C_TEXT, C_TEXT2, C_BORDER, C_BORDER_LT,
     C_ACCENT, C_ACCENT_LT, C_ACCENT_BG,
     C_WIN_BG, C_PANEL_BG, C_ALT_ROW, C_HEADER_BG,
     C_SUCCESS, C_SUCCESS_BG, C_DANGER,
-    HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_PYMOO, HAS_TORCH,
+    HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_PYMOO,
     HAS_CUDA, HAS_SHAP, CUDA_DEVICE_NAME,
     NUM_FEAT_COLS, FRP_TYPES, FEAT_LABELS,
     ALGO_COLORS, CODE_COLORS,
@@ -44,8 +44,7 @@ from optimization import (
     PARAM_SPACES, NSGA2_OBJECTIVES, _GPU_CAPABLE,
 )
 
-
-# ── sklearn OneHotEncoder sparse kwarg shim ──────────────────────────
+# sklearn OneHotEncoder sparse kwarg shim
 # sklearn < 1.2 : sparse=False  |  sklearn >= 1.2 : sparse_output=False
 def _ohe_sparse_kwarg():
     import sklearn
@@ -64,7 +63,7 @@ def _ohe_sparse_kwarg():
 from config import (
     APP_VERSION, _SHAP_BUNDLE_SAMPLES,
     C_TEXT, C_TEXT2, C_BORDER, C_BORDER_LT, C_ACCENT, C_ACCENT_LT, C_ACCENT_BG,
-    HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_PYMOO, HAS_TORCH,
+    HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_PYMOO,
     NUM_FEAT_COLS, FRP_TYPES,
     HAS_CUDA, CUDA_DEVICE_NAME,
 )
@@ -81,7 +80,7 @@ if HAS_XGB:    import xgboost as xgb
 if HAS_LGB:    import lightgbm as lgb
 if HAS_CAT:    import catboost as cb
 
-# ── Algorithm catalogue ───────────────────────────────────────────────
+# Algorithm catalogue
 # Default hyperparameters set to the paper's optimal values for the
 # no-stirrup FRP-RC beam dataset (Table 3-6):
 #   GBDT:     n_est=2300, lr=0.1483, min_split=50, min_leaf=1, depth=3
@@ -98,43 +97,37 @@ _ALGO_CATALOGUE = [
     ('Random Forest','Bagging',  None,      {'n_estimators':1200,'max_depth':25,'min_samples_leaf':1,'min_samples_split':5,'max_features':1.0}),
     ('Extra Trees',  'Bagging',  None,      {'n_estimators':500,'max_depth':20,'min_samples_leaf':1,'min_samples_split':4,'max_features':0.7}),
     ('KNN',          'Instance', None,      {'n_neighbors':5,'leaf_size':30}),
-    ('MLP',          'Neural',   None,      {'hidden_layer_sizes_n':128,'alpha':0.001,'learning_rate_init':0.001,'max_iter':2000}),
-    ('SVR',          'Kernel',   None,      {'C':10.0,'epsilon':0.1}),
 ]
 
 _PARAM_LABELS = {
-    # ── Common tree params ─────────────────────────────────────────────
+    # Common tree params
     'n_estimators':         ('No. estimators',    50,  3000, False),
     'iterations':           ('Iterations',         50,  3000, False),
     'max_depth':            ('Max depth',           3,    30, False),
     'depth':                ('Max depth',           2,    10, False),
     'learning_rate':        ('Learning rate',    0.005,  0.3, True),
     'learning_rate_init':   ('LR (init)',       0.0001,  0.1, True),
-    # ── GBDT-specific ─────────────────────────────────────────────────
+    # GBDT-specific
     'min_samples_split':    ('Min split',            2,  100, False),
     'min_samples_leaf':     ('Min leaf samples',     1,   10, False),
-    # ── XGBoost-specific ──────────────────────────────────────────────
+    # XGBoost-specific
     'min_child_weight':     ('Min child weight',     2,  100, False),
     'max_leaves':           ('Max leaves',          15,  512, False),
-    # ── LightGBM-specific ─────────────────────────────────────────────
+    # LightGBM-specific
     'num_leaves':           ('Num leaves',          15,  512, False),
     'min_child_samples':    ('Min child samples',    1,   10, False),
-    # ── CatBoost-specific ─────────────────────────────────────────────
+    # CatBoost-specific
     'l2_leaf_reg':          ('L2 reg',              0.0, 10.0, True),
     'min_data_in_leaf':     ('Min leaf samples',    1,    10, False),
     'bagging_temperature':  ('Bagging temp',        0.0,  1.0, True),
-    # ── RF / ET ───────────────────────────────────────────────────────
+    # RF / ET
     'max_features':         ('Max features',        0.1,  1.0, True),
-    # ── Other ─────────────────────────────────────────────────────────
+    # Other
     'subsample':            ('Subsample',           0.4,  1.0, True),
     'colsample_bytree':     ('Col sample',          0.4,  1.0, True),
     'reg_alpha':            ('L1 reg (α)',         1e-4, 10.0, True),
     'n_neighbors':          ('Neighbors',             2,   30, False),
     'leaf_size':            ('Leaf size',            10,   80, False),
-    'hidden_layer_sizes_n': ('Hidden units',         32,  512, False),
-    'alpha':                ('Weight decay',        1e-6,  0.1, True),
-    'C':                    ('Regulariz. C',        0.01, 200.0, True),
-    'epsilon':              ('Epsilon',            0.001,  2.0, True),
 }
 
 # Colour palette for optimisation curves
@@ -147,9 +140,6 @@ _CURVE_PALETTE = [
 def _is_available(requires):
     if requires is None: return True
     return {'xgboost': HAS_XGB, 'lightgbm': HAS_LGB,
-            'catboost': HAS_CAT, 'torch': HAS_TORCH}.get(requires, True)
+            'catboost': HAS_CAT}.get(requires, True)
 
-
-# ══════════════════════════════════════════════════════════════════════
 #  _TLBOPreviewThread  — lightweight TLBO run inside the config dialog
-# ══════════════════════════════════════════════════════════════════════

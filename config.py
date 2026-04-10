@@ -1,16 +1,23 @@
 """
 config.py — Global constants, colour palette, feature definitions.
 """
-APP_VERSION = '2.0.0'
+APP_VERSION = '1.0'
 _SHAP_BUNDLE_SAMPLES = 400
 
-# ── Optional-library availability flags ─────────────────────────────
+# Optional-library availability flags
 try:    import xgboost  as xgb; HAS_XGB    = True
-except ImportError:             HAS_XGB    = False
+except Exception:               HAS_XGB    = False
 try:    import lightgbm as lgb; HAS_LGB    = True
-except ImportError:             HAS_LGB    = False
-try:    import catboost as cb;  HAS_CAT    = True
-except ImportError:             HAS_CAT    = False
+except Exception:               HAS_LGB    = False
+
+# CatBoost may raise OSError on Windows if the VC++ runtime is missing.
+HAS_CAT = False
+_CAT_IMPORT_ERROR = None
+try:
+    import catboost as cb
+    HAS_CAT = True
+except Exception as _e:
+    _CAT_IMPORT_ERROR = str(_e)
 try:
     import optuna
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -18,8 +25,9 @@ try:
 except ImportError:             HAS_OPTUNA = False
 try:    import shap;            HAS_SHAP   = True
 except ImportError:             HAS_SHAP   = False
-try:    import torch;           HAS_TORCH  = True
-except ImportError:             HAS_TORCH  = False
+
+HAS_TORCH = False  # PyTorch removed; stub retained for compatibility
+
 try:
     from sklearn.inspection import PartialDependenceDisplay
     HAS_PDP = True
@@ -32,32 +40,21 @@ try:
     HAS_PYMOO = True
 except ImportError:             HAS_PYMOO  = False
 
-# ── GPU / CUDA detection ─────────────────────────────────────────────
-HAS_CUDA        = False
+# Detect GPU via nvidia-smi (no torch dependency).
+HAS_CUDA         = False
 CUDA_DEVICE_NAME = 'Not detected'
 try:
-    import torch
-    if torch.cuda.is_available():
+    import subprocess as _sp
+    _r = _sp.run(
+        ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
+        capture_output=True, text=True, timeout=3)
+    if _r.returncode == 0 and _r.stdout.strip():
         HAS_CUDA         = True
-        CUDA_DEVICE_NAME = torch.cuda.get_device_name(0)
+        CUDA_DEVICE_NAME = _r.stdout.strip().splitlines()[0].strip()
 except Exception:
     pass
 
-if not HAS_CUDA:
-    try:
-        import subprocess as _sp
-        _r = _sp.run(
-            ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
-            capture_output=True, text=True, timeout=3)
-        if _r.returncode == 0 and _r.stdout.strip():
-            HAS_CUDA         = True
-            CUDA_DEVICE_NAME = _r.stdout.strip().splitlines()[0].strip()
-    except Exception:
-        pass
-
-# ═══════════════════════════════════════════════════════════════════════
-#  COLOUR PALETTE
-# ═══════════════════════════════════════════════════════════════════════
+# Colour palette
 C_WIN_BG    = '#F5F5F5'
 C_PANEL_BG  = '#FFFFFF'
 C_ALT_ROW   = '#F9F9F9'
@@ -89,29 +86,16 @@ CODE_COLORS = {
     'Proposed':      '#1A5FA0',
 }
 
-# ── Feature definitions ──────────────────────────────────────────────
+# Feature definitions
 FRP_TYPES     = ['A', 'B', 'C', 'G']
 NUM_FEAT_COLS = ['a/d', 'd(mm)', 'b(mm)', "f`c(Mpa)", '\u03c1f(%)', 'Ef(GPa)']
 FEAT_LABELS   = NUM_FEAT_COLS + [f'FRP={t}' for t in FRP_TYPES]
 
-# ── Matplotlib backend — auto-detect, never crash ────────────────────
-# Do NOT call matplotlib.use() here at module level: it runs on every
-# `import config` (including from train_frp_models.py and tests) and
-# will crash headless environments.  Backend selection is deferred to
-# _configure_mpl() which is called only inside the GUI entry point.
+# Defer backend selection to _configure_mpl() to avoid crashing
+# headless environments that import config without a display.
 
 def _configure_mpl():
-    """
-    Select the best available Qt/Tk matplotlib backend and apply
-    journal-quality defaults.  Safe to call multiple times (no-op after
-    the first successful switch).
-
-    Backend priority:
-      Qt5Agg  (PyQt5 / PySide2)
-      Qt6Agg  (PyQt6 / PySide6)
-      TkAgg   (Tcl/Tk — ships with CPython, always available on Windows/macOS)
-      Agg     (headless fallback — no interactive window, but no crash)
-    """
+    """Select a Qt/Tk matplotlib backend and apply plot style defaults."""
     import matplotlib
     import matplotlib.pyplot as plt
 
@@ -156,7 +140,7 @@ def _configure_mpl():
         'font.size':           10,
     })
 
-# ── Variable-name dictionaries ───────────────────────────────────────
+# Variable-name dictionaries
 VAR_LATEX = {
     'Vexp(kN)': r'$V_\mathrm{exp}$\,(kN)',
     'a/d':       r'$a/d$',

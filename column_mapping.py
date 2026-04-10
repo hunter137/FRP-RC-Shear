@@ -14,7 +14,6 @@ from config import C_TEXT, C_TEXT2, C_BORDER, C_ACCENT, C_ACCENT_LT, C_ACCENT_BG
 from widgets import panel, _stat_textbox
 
 #  SECTION 7 — COLUMN MAPPING (database portability)
-# ═══════════════════════════════════════════════════════════════════════
 
 # Internal canonical keys → human-readable descriptions
 _VAR_CATALOGUE = {
@@ -76,7 +75,6 @@ _ALIASES = {
     'ad':       ['a/d','ad','a_d','shear_span_ratio'],
 }
 
-
 def _auto_map(raw_cols, df=None):
     """Return {canonical_key: raw_col_name} via exact + stripped matching.
 
@@ -121,7 +119,6 @@ def _auto_map(raw_cols, df=None):
                 result[key] = _best_col(strip_multi[sk]); break
     return result
 
-
 def _build_dataframe(raw, mapping, drop_no_target=True):
     """
     Construct a standardised DataFrame from raw data + column mapping.
@@ -143,7 +140,6 @@ def _build_dataframe(raw, mapping, drop_no_target=True):
     if drop_no_target:
         df = df[valid].reset_index(drop=True)
     return df, n_valid, n_total
-
 
 class ColumnMappingDialog(QDialog):
     """

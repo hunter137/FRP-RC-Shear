@@ -8,34 +8,18 @@ A PyQt5 desktop application for predicting the shear capacity of
 FRP-reinforced concrete beams without stirrups, using ensemble
 learning models (GBDT, XGBoost, LightGBM, CatBoost, Random Forest).
 """
-# On Windows with MKL, sklearn MLPRegressor can trigger a C++ memory access
-# violation (Access Violation) after many training iterations, crashing the
-# entire process before Python's excepthook or sys.exit can intervene.
-# Pinning BLAS thread count to 1 fully prevents this; the performance impact
-# on small datasets is negligible.
-#
-# CRITICAL: use direct assignment (os.environ[k] = '1'), NOT setdefault().
-# setdefault() is a no-op when the variable is already in the environment
-# (e.g. conda sets OMP_NUM_THREADS=8 by default), so the MLP crash fix
-# would silently not apply.  We must force-override unconditionally.
+# Allow multiple Intel OpenMP copies to coexist (harmless when only one is present).
 import os
-os.environ['OMP_NUM_THREADS']      = '1'
-os.environ['MKL_NUM_THREADS']      = '1'
-os.environ['OPENBLAS_NUM_THREADS'] = '1'
-os.environ['NUMEXPR_NUM_THREADS']  = '1'
-# Also prevent MKL from spawning threads inside joblib workers
-os.environ['MKL_DYNAMIC']          = 'FALSE'
-os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+os.environ['KMP_WARNINGS']         = 'FALSE'
 
-# Enable Python's faulthandler so that if a C-level segfault/AV still slips
-# through, the OS signal handler writes a native stack trace to stderr before
-# the process dies — invaluable for post-mortem diagnosis.
+
+
+# Write a native stack trace to stderr on C-level crashes.
 import faulthandler, sys as _sys
 faulthandler.enable(file=_sys.stderr, all_threads=True)
 
-# Detects PyQt5 vs PySide6, sets QT_API env-var so matplotlib uses the
-# same binding, and installs flat enum aliases on PySide6 classes so
-# existing PyQt5-style code (QSizePolicy.Expanding etc.) works unchanged.
+
 import qt_compat
 qt_compat.patch()
 
@@ -48,22 +32,13 @@ warnings.filterwarnings('ignore', category=ConvergenceWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
 warnings.filterwarnings('ignore', category=FutureWarning)
 
-# warnings.filterwarnings() only affects the current process.  When
-# cross_val_score runs with n_jobs=-1, each CV fold executes in a fresh
-# subprocess (loky backend) that does NOT inherit the parent's warning
-# filters.  Setting PYTHONWARNINGS='ignore' before any child process is
-# spawned propagates the suppression to all workers automatically.
-# Note: dotted module paths (e.g. sklearn.exceptions.ConvergenceWarning)
-# are not valid as the category field in PYTHONWARNINGS, so we use the
-# plain 'ignore' token which silences all warnings in subprocesses.
+# Propagate warning suppression to loky subprocess workers.
 os.environ.setdefault('PYTHONWARNINGS', 'ignore')
 
-# Suppress LightGBM C++-level "N warning generated." messages that bypass
-# Python's warnings module and go directly to stderr.
+# Suppress LightGBM C++-level stderr messages.
 try:
     import lightgbm as _lgb
-    _lgb.basic._LightGBMLibrary  # probe — works only if lgb loaded
-    # Set global log level to ERROR so info/warning messages are silenced
+    _lgb.basic._LightGBMLibrary
     os.environ.setdefault('LIGHTGBM_VERBOSITY', '-1')
 except Exception:
     pass
@@ -81,38 +56,23 @@ from config import (
 from app import MainWindow
 
 def _install_excepthook():
-    """
-    Replace sys.excepthook so that any unhandled Python exception
-    (including those raised inside Qt slots and not caught locally)
-    shows an error dialog instead of silently terminating the process.
-
-    PyQt5 ≥ 5.5 calls the active excepthook when an exception propagates
-    out of a Python slot into C++ code.  Without this hook the default
-    handler prints a traceback to stderr and then calls sys.exit(1),
-    closing the window with no user-visible explanation.
-    """
+    """Show an error dialog for unhandled exceptions instead of silently exiting."""
     from PyQt5.QtWidgets import QMessageBox
     import traceback as _tb
 
     def _hook(exc_type, exc_value, exc_tb):
         _tb.print_exception(exc_type, exc_value, exc_tb)          # keep stderr log
         msg = ''.join(_tb.format_exception(exc_type, exc_value, exc_tb))
-        # Guard the dialog creation itself — if QApplication is in a bad state,
-        # QMessageBox() could raise, which would recursively re-invoke this hook
-        # and eventually hit Python's recursion limit, calling sys.exit(120).
-        try:
-            dlg = QMessageBox()
-            dlg.setIcon(QMessageBox.Critical)
-            dlg.setWindowTitle('Unexpected Error')
-            dlg.setText(
-                '<b>An unexpected error occurred.</b><br>'
-                'The application will attempt to continue.<br><br>'
-                'Please copy the details below and report this issue.')
-            dlg.setDetailedText(msg)
-            dlg.setStandardButtons(QMessageBox.Ok)
-            dlg.exec_()
-        except Exception:
-            pass   # dialog failed — traceback already printed to stderr above
+        dlg = QMessageBox()
+        dlg.setIcon(QMessageBox.Critical)
+        dlg.setWindowTitle('Unexpected Error')
+        dlg.setText(
+            '<b>An unexpected error occurred.</b><br>'
+            'The application will attempt to continue.<br><br>'
+            'Please copy the details below and report this issue.')
+        dlg.setDetailedText(msg)
+        dlg.setStandardButtons(QMessageBox.Ok)
+        dlg.exec_()
 
     sys.excepthook = _hook
 

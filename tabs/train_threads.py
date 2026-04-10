@@ -1,12 +1,13 @@
 import warnings
 import traceback
+import multiprocessing
+import joblib
 import numpy as np
 from sklearn.model_selection import cross_val_score
 from sklearn.exceptions import ConvergenceWarning
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QMessageBox
 
-from config import HAS_CUDA
 from optimization import (
     tlbo_optimize, _optuna_optimize, nsga2_optimize,
     PARAM_SPACES, _GPU_CAPABLE,
@@ -14,9 +15,14 @@ from optimization import (
 from metrics import calc_metrics
 from model_io import FittedModel
 
+# Reserve ~10% of cores for the OS/UI; joblib clamps to actual CV fold count.
+_N_CPU  = multiprocessing.cpu_count()
+_N_SAFE = max(1, int(_N_CPU * 0.9))
+
+
 class _TLBOPreviewThread(QThread):
-    progress = pyqtSignal(int, int, float)   # (eval_idx, total, best_cv)
-    finished = pyqtSignal(dict, float)        # (best_params, best_score)
+    progress = pyqtSignal(int, int, float)
+    finished = pyqtSignal(dict, float)
     log_line = pyqtSignal(str)
 
     def __init__(self, factory, space, X, y, n_pop, n_iter, cv, seed):
@@ -45,14 +51,14 @@ class _TLBOPreviewThread(QThread):
             )
             if not self._abort:
                 self.finished.emit(bp, bs)
-        except Exception as e:
-            import traceback
+        except Exception:
             self.log_line.emit(f'[FATAL] TLBO preview error:\n{traceback.format_exc()}')
 
+
 class _TLBOMultiThread(QThread):
-    algo_started = pyqtSignal(str)               # algo name
-    algo_done    = pyqtSignal(str, dict, float)  # name, best_params, best_score
-    trial_update = pyqtSignal(str, int, int, float)  # name, i, total, best
+    algo_started = pyqtSignal(str)
+    algo_done    = pyqtSignal(str, dict, float)
+    trial_update = pyqtSignal(str, int, int, float)
     log_line     = pyqtSignal(str)
     all_done     = pyqtSignal()
 
@@ -65,10 +71,7 @@ class _TLBOMultiThread(QThread):
         self._abort = True
 
     def run(self):
-        import warnings
-        from sklearn.exceptions import ConvergenceWarning
         warnings.filterwarnings('ignore', category=ConvergenceWarning)
-
         try:
             from threadpoolctl import threadpool_limits as _tpl
             _blas_ctx = _tpl(limits=1, user_api='blas')
@@ -77,12 +80,17 @@ class _TLBOMultiThread(QThread):
             _blas_ctx = nullcontext()
 
         try:
-            with _blas_ctx:
-                self._run_tasks()
+            with joblib.parallel_backend('loky', n_jobs=_N_SAFE):
+                with _blas_ctx:
+                    self._run_tasks()
         except Exception:
-            import traceback
             self.log_line.emit(f'[FATAL] Multi-TLBO error:\n{traceback.format_exc()}')
         finally:
+            try:
+                from joblib.externals.loky import get_reusable_executor
+                get_reusable_executor(max_workers=0).shutdown(wait=True)
+            except Exception:
+                pass
             self.all_done.emit()
 
     def _run_tasks(self):
@@ -93,19 +101,14 @@ class _TLBOMultiThread(QThread):
             name  = task['name']
             total = task['n_pop'] + task['n_iter'] * 2 * task['n_pop']
             self.algo_started.emit(name)
-            self.log_line.emit(f'[INFO] ── {name} '
-                               + '─' * max(0, 42 - len(name)))
+            self.log_line.emit(f'[INFO] {name}')
             self.log_line.emit(
                 '    Note: the first 20 trials are random initialisation.'
-                '  Some R² values may be low or negative — this is expected.'
-                '  The optimiser will converge rapidly after initialisation.')
+                '  Some R\u00b2 values may be low or negative \u2014 this is expected.')
 
-            is_mlp    = (task['name'] == 'MLP')
-            cv_n_jobs = 1 if (task.get('use_gpu', False) or is_mlp) else -1
+            cv_n_jobs = 1 if task.get('use_gpu', False) else _N_SAFE
             if cv_n_jobs == 1:
-                self.log_line.emit(
-                    f'    [sequential CV] folds run with n_jobs=1 '
-                    f'(GPU model or MLP).')
+                self.log_line.emit('    [sequential CV] n_jobs=1 (GPU model).')
 
             bp, bs, _ = tlbo_optimize(
                 task['factory'], task['space'],
@@ -122,15 +125,17 @@ class _TLBOMultiThread(QThread):
             )
             if not self._abort:
                 self.log_line.emit(
-                    f'[DONE] {name}  —  Best CV R² = {bs:.4f}  '
+                    f'[DONE] {name}  \u2014  Best CV R\u00b2 = {bs:.4f}  '
                     '(\u2713 values applied, parameters locked)')
                 self.algo_done.emit(name, bp, bs)
+
 
 class TrainingThread(QThread):
     progress    = pyqtSignal(int)
     log         = pyqtSignal(str)
     done        = pyqtSignal(dict)
-    trial_score = pyqtSignal(str, int, float)   # (model_name, eval_idx, best_cv)
+    trial_score = pyqtSignal(str, int, float)
+    model_done  = pyqtSignal(str, dict)
 
     def __init__(self, X_tr, X_te, y_tr, y_te, models_cfg,
                  cv_folds, X_all, y_all,
@@ -161,7 +166,7 @@ class TrainingThread(QThread):
 
     def stop(self):
         self._stop = True
-        self.log.emit('    [WARN] Stop requested …')
+        self.log.emit('    [WARN] Stop requested ...')
 
     def _stopped(self): return self._stop
 
@@ -169,86 +174,90 @@ class TrainingThread(QThread):
         """Return param space with custom ranges applied and locked params removed."""
         if name not in PARAM_SPACES:
             return None
-        space   = list(PARAM_SPACES[name]())
-        custom  = self.custom_ranges.get(name, {})
+        space  = list(PARAM_SPACES[name]())
+        custom = self.custom_ranges.get(name, {})
         if custom:
             space = [(p, custom.get(p, (lo, hi))[0],
                          custom.get(p, (lo, hi))[1], is_int)
                      for p, lo, hi, is_int in space]
-        # Remove locked (fixed) parameters from search space
         if locked_params:
             space = [(p, lo, hi, is_int) for p, lo, hi, is_int in space
                      if p not in locked_params]
         return space if space else None
 
     def run(self):
-        import warnings
-        from sklearn.exceptions import ConvergenceWarning
         warnings.filterwarnings('ignore', category=ConvergenceWarning)
 
-        # threadpoolctl gives us a *runtime* BLAS thread cap that works even
-        # when the MKL/OpenBLAS thread pool has already been initialised (which
-        # makes plain os.environ assignments ineffective).  This is the primary
-        # guard against MLPRegressor triggering a C++ Access Violation on
-        # Windows — limiting BLAS to a single thread eliminates the race
-        # condition in MKL's internal memory allocator that causes the crash.
+        # Limit BLAS threads to prevent MKL/OpenBLAS contention across
+        # loky workers; does not affect XGBoost/LightGBM/CatBoost threading.
         try:
             from threadpoolctl import threadpool_limits as _tpl
             _blas_ctx = _tpl(limits=1, user_api='blas')
         except ImportError:
-            # threadpoolctl not available (shouldn't happen — it ships with
-            # scikit-learn); fall back to a no-op context manager.
             from contextlib import nullcontext
             _blas_ctx = nullcontext()
 
+        # Force loky backend so each CV fold runs in an isolated process,
+        # avoiding OpenMP runtime conflicts inside a QThread on Windows.
         results = {}
         try:
-            with _blas_ctx:
-                self._run_inner(results)
-        except Exception as e:
-            import traceback
-            tb = traceback.format_exc()
-            self.log.emit(f'\n[FATAL] Unexpected error in training thread:\n{tb}')
+            with joblib.parallel_backend('loky', n_jobs=_N_SAFE):
+                with _blas_ctx:
+                    self._run_inner(results)
+        except Exception:
+            self.log.emit(f'\n[FATAL] Unexpected error:\n{traceback.format_exc()}')
         finally:
+            # Wait for loky workers to exit cleanly before emitting done,
+            # preventing OpenMP cleanup races on Windows.
+            try:
+                from joblib.externals.loky import get_reusable_executor
+                get_reusable_executor(max_workers=0).shutdown(wait=True)
+            except Exception:
+                pass
             self.done.emit(results)
 
     def _run_inner(self, results):
-        import warnings
-        from sklearn.exceptions import ConvergenceWarning
         warnings.filterwarnings('ignore', category=ConvergenceWarning)
 
-        n_mod   = len(self.models_cfg)
-        cv_tr   = max(2, min(self.cv, len(self.X_tr)))
-        cv_all  = max(2, min(self.cv, len(self.X_all)))
+        n_mod  = len(self.models_cfg)
+        cv_tr  = max(2, min(self.cv, len(self.X_tr)))
+        cv_all = max(2, min(self.cv, len(self.X_all)))
+
+        # GBDT and AdaBoost use a single thread per estimator; run multiple
+        # concurrent Optuna trials to keep all cores busy.
+        _SINGLE_THREAD_MODELS = {'GBDT', 'AdaBoost'}
 
         for idx, (name, cfg) in enumerate(self.models_cfg.items()):
             if self._stopped(): break
-            factory      = cfg['factory']
-            fixed_params = cfg['fixed_params']
+            factory        = cfg['factory']
+            fixed_params   = cfg['fixed_params']
             model_uses_gpu = cfg.get('use_gpu', False)
-            is_mlp         = (name == 'MLP')
-            cv_n_jobs      = 1 if (model_uses_gpu or is_mlp) else -1
+            cv_n_jobs      = 1 if model_uses_gpu else _N_SAFE
+
             self.log.emit(f'\n{"="*55}')
             self.log.emit(f'[{idx+1} of {n_mod}]  {name}'
                           + ('  [GPU]' if model_uses_gpu else ''))
 
-            best_params = dict(fixed_params)
-            best_cv     = float('nan')
+            best_params   = dict(fixed_params)
+            best_cv       = float('nan')
             locked_params = cfg.get('locked_params', set())
-            space       = self._build_space(name, locked_params)
+            space         = self._build_space(name, locked_params)
 
-            # Log locked params so user knows what's fixed
             if locked_params and self.opt_strategy != 'none':
                 self.log.emit(
-                    f'    Locked (fixed) params: '
-                    f'{", ".join(sorted(locked_params))}')
+                    f'    Locked params: {", ".join(sorted(locked_params))}')
 
-            # score_fn: emit trial signal so the live curve updates
             def _sfn(i, s, _n=name):
                 self.trial_score.emit(_n, i, s)
 
-            if self.opt_strategy in ('bayesian', 'tlbo', 'nsga2') \
-                    and space is not None:
+            if model_uses_gpu:
+                n_parallel_trials = 1
+            elif name in _SINGLE_THREAD_MODELS:
+                n_parallel_trials = max(1, _N_SAFE // max(2, cv_tr))
+            else:
+                n_parallel_trials = max(1, min(2, _N_SAFE))
+
+            if self.opt_strategy in ('bayesian', 'tlbo', 'nsga2') and space is not None:
                 if self.opt_strategy == 'tlbo':
                     ts = self.tlbo_settings
                     if ts.get('mode') == 'manual':
@@ -259,48 +268,41 @@ class TrainingThread(QThread):
                         n_iter = max(3, self.opt_trials // 5)
                     total = n_pop + n_iter * 2 * n_pop
                     self.log.emit(
-                        f'    TLBO (Teaching-Learning)  N_pop={n_pop}, N_iter={n_iter}, '
-                        f'total≈{total} evals …')
+                        f'    TLBO  N_pop={n_pop}, N_iter={n_iter}, '
+                        f'total\u2248{total} evals ...')
                     opt_params, best_cv, _ = tlbo_optimize(
                         factory, space,
                         self.X_tr, self.y_tr, cv=cv_tr,
-                        n_pop=n_pop,
-                        n_iter=n_iter,
-                        seed=self.seed,
-                        log_fn=self.log.emit,
-                        stop_flag=self._stopped,
-                        score_fn=_sfn,
-                        cv_n_jobs=cv_n_jobs)
+                        n_pop=n_pop, n_iter=n_iter, seed=self.seed,
+                        log_fn=self.log.emit, stop_flag=self._stopped,
+                        score_fn=_sfn, cv_n_jobs=cv_n_jobs)
                 elif self.opt_strategy == 'bayesian':
                     bs = self.bayes_settings
                     self.log.emit(
-                        f'    Bayesian Optimisation (TPE)  {self.opt_trials} trials, '
+                        f'    Bayesian (TPE)  {self.opt_trials} trials, '
                         f'startup={bs["n_startup_trials"]}, '
-                        f'multivariate={"yes" if bs["multivariate"] else "no"} …')
+                        f'multivariate={"yes" if bs["multivariate"] else "no"} ...')
                     opt_params, best_cv, _ = _optuna_optimize(
                         factory, space,
                         self.X_tr, self.y_tr, cv=cv_tr,
-                        n_trials=self.opt_trials,
-                        seed=self.seed,
-                        log_fn=self.log.emit,
-                        stop_flag=self._stopped,
+                        n_trials=self.opt_trials, seed=self.seed,
+                        log_fn=self.log.emit, stop_flag=self._stopped,
                         score_fn=_sfn,
                         n_startup_trials=bs['n_startup_trials'],
                         multivariate=bs['multivariate'],
                         cv_n_jobs=cv_n_jobs,
                         early_stop=self.early_stop,
-                        patience=self.patience)
+                        patience=self.patience,
+                        n_parallel_trials=n_parallel_trials)
                 elif self.opt_strategy == 'nsga2':
-                    self.log.emit(
-                        f'    NSGA-II (Multi-Objective)  {self.opt_trials} evaluations')
+                    self.log.emit(f'    NSGA-II  {self.opt_trials} evaluations')
                     opt_params, best_cv, _ = nsga2_optimize(
                         factory, space,
                         self.X_tr, self.X_te,
                         self.y_tr, self.y_te,
                         cv=cv_tr,
                         n_gen=max(5, self.opt_trials // 10),
-                        pop_size=10,
-                        seed=self.seed,
+                        pop_size=10, seed=self.seed,
                         log_fn=self.log.emit,
                         objectives=self.nsga2_objectives,
                         stop_flag=self._stopped)
@@ -315,14 +317,13 @@ class TrainingThread(QThread):
                         cv=cv_tr, scoring='r2', n_jobs=cv_n_jobs)
                     best_cv = float(cv_scores.mean())
                     self.log.emit(
-                        f'    Fixed parameters  CV R2 = {best_cv:.4f} '
-                        f'± {cv_scores.std():.4f}')
+                        f'    Fixed params  CV R2 = {best_cv:.4f} '
+                        f'\u00b1 {cv_scores.std():.4f}')
                 except Exception as e:
                     self.log.emit(f'    [WARN] CV failed: {e}')
 
             if self._stopped(): break
 
-            # Final fit
             try:
                 model   = factory(**best_params)
                 model.fit(self.X_tr, self.y_tr)
@@ -341,26 +342,26 @@ class TrainingThread(QThread):
                 results[name] = {
                     'model':       FittedModel(model),
                     'best_params': best_params,
-                    'tr_pred':    tr_pred,
-                    'te_pred':    te_pred,
-                    'tr_metrics': tr_m,
-                    'te_metrics': te_m,
-                    'cv_mean':    cv_mean,
-                    'cv_std':     cv_std,
-                    '_y_tr':      self.y_tr,
-                    '_y_te':      self.y_te,
+                    'tr_pred':     tr_pred,
+                    'te_pred':     te_pred,
+                    'tr_metrics':  tr_m,
+                    'te_metrics':  te_m,
+                    'cv_mean':     cv_mean,
+                    'cv_std':      cv_std,
+                    '_y_tr':       self.y_tr,
+                    '_y_te':       self.y_te,
                 }
+                self.model_done.emit(name, results[name])
                 self.log.emit(
-                    f'    Train  R² = {tr_m["R2"]:.4f}  '
+                    f'    Train  R\u00b2 = {tr_m["R2"]:.4f}  '
                     f'RMSE = {tr_m["RMSE"]:.2f} kN')
                 self.log.emit(
-                    f'    Test   R² = {te_m["R2"]:.4f}  '
+                    f'    Test   R\u00b2 = {te_m["R2"]:.4f}  '
                     f'RMSE = {te_m["RMSE"]:.2f} kN  '
                     f'r = {te_m["r"]:.4f}')
                 self.log.emit(
-                    f'    Full CV  = {cv_mean:.4f} ± {cv_std:.4f}')
+                    f'    Full CV  = {cv_mean:.4f} \u00b1 {cv_std:.4f}')
             except Exception as e:
                 self.log.emit(f'    [ERROR] {name} failed: {e}')
 
             self.progress.emit(int((idx + 1) / n_mod * 100))
-

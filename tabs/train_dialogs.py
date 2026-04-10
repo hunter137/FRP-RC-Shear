@@ -39,7 +39,7 @@ from config import (
     C_ACCENT, C_ACCENT_LT, C_ACCENT_BG,
     C_WIN_BG, C_PANEL_BG, C_ALT_ROW, C_HEADER_BG,
     C_SUCCESS, C_SUCCESS_BG, C_DANGER,
-    HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_PYMOO, HAS_TORCH,
+    HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_PYMOO,
     HAS_CUDA, HAS_SHAP, CUDA_DEVICE_NAME,
     NUM_FEAT_COLS, FRP_TYPES, FEAT_LABELS,
     ALGO_COLORS, CODE_COLORS,
@@ -723,4 +723,159 @@ class _TrainSummaryDialog(QDialog):
             })
         pd.DataFrame(rows).to_csv(path, index=False)
         QMessageBox.information(self, 'Saved', f'Results saved to:\n{path}')
+
+#  StopSaveDialog — shown when user clicks Stop during training
+
+class StopSaveDialog(QDialog):
+    """
+    Displayed when the user clicks Stop.
+    Shows all algorithms that were queued; completed ones have enabled
+    checkboxes (pre-ticked, showing their test-set R²); not-yet-trained
+    ones are shown with a greyed-out, disabled checkbox.
+
+    Buttons
+    -------
+    Save Selected   – stop + save the ticked models to a .frpmdl bundle
+    Stop & Discard  – stop without saving anything
+    Cancel          – dismiss the dialog and resume training
+    """
+
+    def __init__(self, all_models: list, completed: dict, parent=None):
+        """
+        all_models : ordered list of all algorithm names queued for training
+        completed  : dict of {name: result_dict} for models that finished
+        """
+        super().__init__(parent)
+        self.setWindowTitle('Stop Training')
+        self.setModal(True)
+        self.setMinimumWidth(460)
+        self.setWindowFlags(
+            Qt.Dialog |
+            Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint)
+
+        self._completed  = completed
+        self._checkboxes = {}
+        self._action     = None   # 'save' | 'discard' | None (cancel)
+
+        root = QVBoxLayout(self)
+        root.setSpacing(10)
+        root.setContentsMargins(18, 16, 18, 14)
+
+        # Header
+        n_done  = len(completed)
+        n_total = len(all_models)
+
+        hdr = QLabel(f'<b>Stop training?</b>')
+        hdr.setStyleSheet('font-size:13px;')
+        root.addWidget(hdr)
+
+        sub = QLabel(
+            f'{n_done} of {n_total} model(s) completed.  '
+            f'Select which finished models to save:')
+        sub.setStyleSheet(f'font-size:11px; color:{C_TEXT2};')
+        sub.setWordWrap(True)
+        root.addWidget(sub)
+
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(f'color:{C_BORDER_LT};')
+        root.addWidget(sep)
+
+        # Model list
+        for name in all_models:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+
+            cb = QCheckBox()
+            label = QLabel()
+            label.setStyleSheet('font-size:11px;')
+
+            if name in completed:
+                te   = completed[name].get('te_metrics', {})
+                r2   = te.get('R2', float('nan'))
+                rmse = te.get('RMSE', float('nan'))
+                cb.setChecked(True)
+                cb.setEnabled(True)
+                label.setText(
+                    f'<b>{name}</b>'
+                    f'<span style="color:{C_TEXT2};"> — '
+                    f'Test R² = {r2:.4f},  RMSE = {rmse:.2f} kN</span>')
+            else:
+                cb.setChecked(False)
+                cb.setEnabled(False)
+                label.setEnabled(False)
+                label.setText(
+                    f'<span style="color:{C_BORDER};">{name} — not completed</span>')
+
+            row.addWidget(cb)
+            row.addWidget(label, 1)
+            root.addLayout(row)
+            self._checkboxes[name] = cb
+
+        # Separator
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.HLine)
+        sep2.setStyleSheet(f'color:{C_BORDER_LT};')
+        root.addWidget(sep2)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(6)
+
+        self._save_btn = QPushButton('Save Selected')
+        self._save_btn.setFixedHeight(30)
+        self._save_btn.setStyleSheet(
+            f'background:{C_ACCENT};color:#fff;'
+            f'border:none;padding:0 14px;font-size:11px;')
+        self._save_btn.setEnabled(n_done > 0)
+        self._save_btn.clicked.connect(self._on_save)
+
+        discard_btn = QPushButton('Stop & Discard')
+        discard_btn.setFixedHeight(30)
+        discard_btn.setStyleSheet(
+            f'border:1px solid {C_BORDER};padding:0 14px;font-size:11px;')
+        discard_btn.clicked.connect(self._on_discard)
+
+        cancel_btn = QPushButton('Cancel  (resume training)')
+        cancel_btn.setFixedHeight(30)
+        cancel_btn.setStyleSheet(
+            f'border:1px solid {C_BORDER};padding:0 14px;font-size:11px;')
+        cancel_btn.clicked.connect(self.reject)
+
+        btn_row.addWidget(self._save_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(discard_btn)
+        btn_row.addWidget(cancel_btn)
+        root.addLayout(btn_row)
+
+        # Keep Save Selected button in sync with checkbox state
+        for cb in self._checkboxes.values():
+            cb.toggled.connect(self._refresh_save_btn)
+
+    # slots
+    def _on_save(self):
+        self._action = 'save'
+        self.accept()
+
+    def _on_discard(self):
+        self._action = 'discard'
+        self.accept()
+
+    def _refresh_save_btn(self):
+        any_ticked = any(
+            cb.isChecked() and cb.isEnabled()
+            for cb in self._checkboxes.values())
+        self._save_btn.setEnabled(any_ticked)
+
+    # public API
+    def action(self) -> str:
+        """'save' | 'discard' | None (user cancelled)"""
+        return self._action
+
+    def selected_names(self) -> list:
+        """Names of checked + enabled models."""
+        return [n for n, cb in self._checkboxes.items()
+                if cb.isChecked() and cb.isEnabled()]
 

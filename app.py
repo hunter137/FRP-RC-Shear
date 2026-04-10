@@ -26,14 +26,12 @@ from model_io import ModelIO
 from widgets import flat_btn
 
 #  SECTION 14 — MAIN WINDOW
-# ═══════════════════════════════════════════════════════════════════════
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(
-            f'FRP-RC Shear Strength Prediction Platform  v{APP_VERSION}  '
-            f'(Stirrup-Free FRP-RC Beams)')
+            f'FRP-RC Shear Strength Prediction Platform')
         self.setMinimumSize(1200, 800)
         self.resize(1500, 920)
         self._build_ui()
@@ -189,7 +187,7 @@ class MainWindow(QMainWindow):
 
         browse_btn = flat_btn('Browse …', width=95)
         browse_btn.clicked.connect(self.tab_data._browse)
-        load_btn   = flat_btn('Load & Map Columns', accent=True)
+        load_btn   = flat_btn('Load and Map Columns', accent=True)
         load_btn.clicked.connect(self.tab_data._load)
         ds.addWidget(browse_btn)
         ds.addWidget(load_btn)
@@ -281,9 +279,17 @@ class MainWindow(QMainWindow):
 
     def _on_train_done(self, results, X_te, y_te, X_tr, y_tr,
                        X_all, y_all):
+        # Limit BLAS threads during post-training updates to prevent OpenMP conflicts.
         try:
-            self._on_train_done_inner(results, X_te, y_te,
-                                      X_tr, y_tr, X_all, y_all)
+            from threadpoolctl import threadpool_limits as _tpl
+            _ctx = _tpl(limits=1, user_api='blas')
+        except ImportError:
+            from contextlib import nullcontext
+            _ctx = nullcontext()
+        try:
+            with _ctx:
+                self._on_train_done_inner(results, X_te, y_te,
+                                          X_tr, y_tr, X_all, y_all)
         except Exception:
             msg = traceback.format_exc()
             QMessageBox.critical(

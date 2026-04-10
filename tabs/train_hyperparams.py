@@ -27,15 +27,15 @@ from PyQt5.QtGui import QFont, QColor
 
 from config import (
     C_TEXT, C_TEXT2, C_BORDER, C_BORDER_LT, C_ACCENT, C_ACCENT_LT, C_ACCENT_BG,
-    HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_TORCH,
-    HAS_CUDA, CUDA_DEVICE_NAME,
+    HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA,
+    HAS_CUDA, CUDA_DEVICE_NAME, _CAT_IMPORT_ERROR,
 )
 from widgets import flat_btn
 from optimization import PARAM_SPACES, _GPU_CAPABLE, _factory_for
 from .train_constants import _ALGO_CATALOGUE, _PARAM_LABELS, _is_available
 from .train_threads import _TLBOPreviewThread, _TLBOMultiThread
 
-# ── PyQt5 — complete import set inherited from the original train_tab ──
+# PyQt5 — complete import set inherited from the original train_tab
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QLabel, QCheckBox, QSpinBox, QDoubleSpinBox, QComboBox,
@@ -49,14 +49,14 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal, QSize
 from PyQt5.QtGui import QFont, QColor, QPixmap, QPainter, QPen, QBrush
 
-# ── config — complete set ──────────────────────────────────────────────
+# config — complete set
 from config import (
     APP_VERSION, _SHAP_BUNDLE_SAMPLES,
     C_TEXT, C_TEXT2, C_BORDER, C_BORDER_LT,
     C_ACCENT, C_ACCENT_LT, C_ACCENT_BG,
     C_WIN_BG, C_PANEL_BG, C_ALT_ROW, C_HEADER_BG,
     C_SUCCESS, C_SUCCESS_BG, C_DANGER,
-    HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_PYMOO, HAS_TORCH,
+    HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_PYMOO,
     HAS_CUDA, HAS_SHAP, CUDA_DEVICE_NAME,
     NUM_FEAT_COLS, FRP_TYPES, FEAT_LABELS,
     ALGO_COLORS, CODE_COLORS,
@@ -101,13 +101,13 @@ class TLBOMultiOptimizeDialog(QDialog):
 
         self._build_ui(init_pop, init_iter, init_cv)
 
-    # ── UI ────────────────────────────────────────────────────────────
+    # UI
     def _build_ui(self, init_pop, init_iter, init_cv):
         root = QHBoxLayout(self)
         root.setSpacing(12)
         root.setContentsMargins(14, 14, 14, 14)
 
-        # ── LEFT panel (fixed width) ──────────────────────────────────
+        # LEFT panel (fixed width)
         left = QWidget()
         left.setFixedWidth(270)
         ll = QVBoxLayout(left)
@@ -159,8 +159,6 @@ class TLBOMultiOptimizeDialog(QDialog):
         self._cv_sp   = self._isp(sg, 'CV Folds:',    init_cv,   2,  15)
         ll.addWidget(sgrp)
 
-
-
         bounds_btn = flat_btn('Search Bounds')
         bounds_btn.setFixedHeight(28)
         bounds_btn.clicked.connect(self._open_bounds)
@@ -186,7 +184,7 @@ class TLBOMultiOptimizeDialog(QDialog):
 
         root.addWidget(left)
 
-        # ── RIGHT panel (stretch) ─────────────────────────────────────
+        # RIGHT panel (stretch)
         right = QWidget()
         rl = QVBoxLayout(right)
         rl.setSpacing(8)
@@ -250,7 +248,7 @@ class TLBOMultiOptimizeDialog(QDialog):
         layout.addLayout(row)
         return sp
 
-    # ── Helpers ──────────────────────────────────────────────────────
+    # Helpers
     def _refresh_device_warning(self, *_):
         """No-op: GPU selection is handled in the main training dialog."""
         pass
@@ -361,7 +359,7 @@ class TLBOMultiOptimizeDialog(QDialog):
         self._abort_btn.setEnabled(False)
         self._status_lbl.setText('Aborting …')
 
-    # ── Slot handlers ─────────────────────────────────────────────────
+    # Slot handlers
     def _on_algo_started(self, name):
         self._cur_bar.setValue(0)
         self._cur_lbl.setText(name)
@@ -401,10 +399,7 @@ class TLBOMultiOptimizeDialog(QDialog):
             self._thread.wait(3000)
         event.accept()
 
-
-# ══════════════════════════════════════════════════════════════════════
 #  AlgorithmConfigDialog
-# ══════════════════════════════════════════════════════════════════════
 class AlgorithmConfigDialog(QDialog):
     def __init__(self, current_selection, current_params,
                  train_data=None, locked_params=None,
@@ -438,13 +433,13 @@ class AlgorithmConfigDialog(QDialog):
         if first:
             self._show_params(first)
 
-    # ── UI construction ───────────────────────────────────────────────
+    # UI construction
     def _build_ui(self):
         vl   = QVBoxLayout(self)
         body = QHBoxLayout()
         vl.addLayout(body)
 
-        # ── Left: algorithm list ──────────────────────────────────────
+        # Left: algorithm list
         left_grp = QGroupBox('Algorithms')
         left_grp.setFixedWidth(265)
         left_grp.setStyleSheet('QGroupBox{font-weight:bold;font-size:12px;}')
@@ -459,7 +454,11 @@ class AlgorithmConfigDialog(QDialog):
                     f'color:{C_TEXT2};font-size:10px;margin-top:4px;')
                 ll.addWidget(sep)
             cb = QCheckBox(
-                name if avail else f'{name}  [pip install {requires}]')
+                name if avail else (
+                    f'{name}  [import error: {_CAT_IMPORT_ERROR}]'
+                    if requires == 'catboost' and _CAT_IMPORT_ERROR
+                    else f'{name}  [pip install {requires}]'
+                ))
             cb.setChecked(avail)
             cb.setEnabled(avail)
             cb.setStyleSheet('font-size:12px;' if avail
@@ -476,7 +475,7 @@ class AlgorithmConfigDialog(QDialog):
         ll.addLayout(btn_row)
         body.addWidget(left_grp)
 
-        # ── Right: hyperparameters + TLBO ─────────────────────────────
+        # Right: hyperparameters + TLBO
         right_grp = QGroupBox('Hyperparameters')
         right_grp.setStyleSheet('QGroupBox{font-weight:bold;font-size:12px;}')
         rl = QVBoxLayout(right_grp)
@@ -517,7 +516,7 @@ class AlgorithmConfigDialog(QDialog):
                     continue
                 _, mn, mx, is_float = meta
 
-                # ── Value spinbox ─────────────────────────────────────
+                # Value spinbox
                 w = QDoubleSpinBox() if is_float else QSpinBox()
                 if is_float:
                     w.setDecimals(5)
@@ -526,7 +525,7 @@ class AlgorithmConfigDialog(QDialog):
                 w.setValue(self._params[name].get(param, val))
                 self._widgets[name][param] = w
 
-                # ── Lock toggle button 🔓/🔒 ──────────────────────────
+                # Lock toggle button 🔓/🔒
                 ck = QPushButton('\U0001f513')
                 ck.setCheckable(True)
                 ck.setChecked(False)
@@ -545,7 +544,7 @@ class AlgorithmConfigDialog(QDialog):
                         '\U0001f512' if locked else '\U0001f513'))
                 self._param_checks[name][param] = ck
 
-                # ── Range spinboxes (Min / Max) ───────────────────────
+                # Range spinboxes (Min / Max)
                 c_range = self._preview_ranges.get(name, {}).get(param)
                 r_lo = c_range[0] if c_range else mn
                 r_hi = c_range[1] if c_range else mx
@@ -577,7 +576,7 @@ class AlgorithmConfigDialog(QDialog):
         bb.rejected.connect(self.reject)
         vl.addWidget(bb)
 
-    # ── Param panel helpers ───────────────────────────────────────────
+    # Param panel helpers
     def _clear_param_layout(self):
         while self._param_layout.count():
             item = self._param_layout.takeAt(0)
@@ -599,17 +598,17 @@ class AlgorithmConfigDialog(QDialog):
             lbl.setStyleSheet('font-size:11px;')
             ck  = self._param_checks[name][param]
 
-            # ── Value spinbox — slightly wider, visually distinct ─────
+            # Value spinbox — slightly wider, visually distinct
             w.setFixedWidth(110)
 
-            # ── Separator label between value and range ───────────────
+            # Separator label between value and range
             sep_lbl = QLabel('│')
             sep_lbl.setAlignment(Qt.AlignCenter)
             sep_lbl.setStyleSheet(
                 f'color:{C_BORDER};font-size:14px;'
                 f'padding: 0 6px;')
 
-            # ── Range spinboxes ───────────────────────────────────────
+            # Range spinboxes
             lo_sp, hi_sp = self._range_widgets[name][param]
             lo_sp.setFixedWidth(82)
             hi_sp.setFixedWidth(82)
@@ -623,13 +622,13 @@ class AlgorithmConfigDialog(QDialog):
                 f'Search range maximum for {meta[0] if meta else param}\n'
                 f'Default: {mx:.4g}')
 
-            # ── Tilde separator ───────────────────────────────────────
+            # Tilde separator
             tilde = QLabel('–')
             tilde.setAlignment(Qt.AlignCenter)
             tilde.setStyleSheet(
                 f'font-size:11px;color:{C_TEXT2};padding:0 2px;')
 
-            # ── Reset button ──────────────────────────────────────────
+            # Reset button
             rst = QPushButton('↺')
             rst.setFixedSize(22, 22)
             rst.setStyleSheet(
@@ -716,7 +715,7 @@ class AlgorithmConfigDialog(QDialog):
                     result.setdefault(name, {})   # ensure algo key exists
         return result
 
-    # ── TLBO preview ──────────────────────────────────────────────────
+    # TLBO preview
     def _open_preview_ranges(self):
         name = self._current_algo
         if name is None or name not in PARAM_SPACES:
@@ -743,10 +742,7 @@ class AlgorithmConfigDialog(QDialog):
     def closeEvent(self, event):
         super().closeEvent(event)
 
-
-# ══════════════════════════════════════════════════════════════════════
 #  SearchRangeDialog  — per-parameter [min, max] customisation
-# ══════════════════════════════════════════════════════════════════════
 class SearchRangeDialog(QDialog):
     """
     Configure search bounds for every tuneable parameter of every
@@ -856,7 +852,4 @@ class SearchRangeDialog(QDialog):
             result[algo][param] = (lo_w.value(), hi_w.value())
         return result
 
-
-# ══════════════════════════════════════════════════════════════════════
 #  BundleFolderDialog
-# ══════════════════════════════════════════════════════════════════════

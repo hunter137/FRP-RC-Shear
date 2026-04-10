@@ -25,10 +25,9 @@ from formulas import (
     calc_proposed,
 )
 
-# ── Standard test case ───────────────────────────────────────────────
+# Standard test case
 # d=300mm, b=200mm, f'c=40MPa, ρf=1.0%, Ef=60GPa, a/d=3.0, GFRP
 D, B, FC, RHO, EF, AD = 300, 200, 40.0, 1.0, 60.0, 3.0
-
 
 class TestHelpers:
     """Tests for helper functions."""
@@ -56,7 +55,6 @@ class TestHelpers:
         # Ec=29915, nf=2.006, x=0.02006, k=0.1812
         assert abs(k - 0.1812) < 0.001
 
-
 class TestGB50608:
     """GB 50608-2020 shear capacity formula."""
 
@@ -78,7 +76,6 @@ class TestGB50608:
         V = calc_gb50608(100, 100, 20.0, 0.1, 30.0)
         assert V >= 0.0
 
-
 class TestACI440:
     """ACI 440.1R-15 shear capacity formula."""
 
@@ -92,7 +89,6 @@ class TestACI440:
         # V ∝ sqrt(fc) * k(fc), both increase with fc
         assert V2 > V1
 
-
 class TestCSAS806:
     """CSA S806-12 shear capacity formula."""
 
@@ -104,7 +100,6 @@ class TestCSAS806:
         V_low = calc_csa_s806(D, B, FC, RHO, 40.0)
         V_high = calc_csa_s806(D, B, FC, RHO, 120.0)
         assert V_high > V_low
-
 
 class TestBISE1999:
     """BISE (1999) shear capacity formula."""
@@ -120,7 +115,6 @@ class TestBISE1999:
         # V/d should decrease (size effect)
         assert V_small / 150 > V_large / 600
 
-
 class TestJSCE:
     """JSCE (1997) shear capacity formula."""
 
@@ -135,7 +129,6 @@ class TestJSCE:
         V_fc90 = calc_jsce(D, B, 90.0, RHO, EF)
         # Both capped → should be equal
         assert abs(V_fc80 - V_fc90) < 0.01
-
 
 class TestProposed:
     """Proposed Bayesian-optimized empirical formula."""
@@ -164,7 +157,6 @@ class TestProposed:
     def test_returns_nonnegative(self):
         V = calc_proposed(100, 100, 20, 0.1, 30, 5.0)
         assert V >= 0.0
-
 
 class TestConsistencyAcrossCodes:
     """Cross-code sanity checks."""
@@ -202,7 +194,6 @@ class TestConsistencyAcrossCodes:
         avg = np.mean(code_vals)
         V_prop = calc_proposed(D, B, FC, RHO, EF, AD)
         assert abs(V_prop - avg) / avg < 0.5
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

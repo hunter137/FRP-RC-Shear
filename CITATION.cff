@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+title: "FRP-ShearPred: An open-source platform for shear capacity prediction of stirrup-free FRP-reinforced concrete beams integrating design codes and ensemble machine learning"
+version: "1.0"
+date-released: "2026-04-10"
+license: MIT
+repository-code: "https://github.com/hunter137/FRP-RC-Shear"
+doi: "10.5281/zenodo.XXXXXXX"
+authors:
+  - family-names: Liang
+    given-names: Deyu
+    affiliation: "Shenyang Jianzhu University; Southeast University"
+keywords:
+  - FRP-reinforced concrete
+  - shear strength prediction
+  - ensemble machine learning
+  - design codes
+  - structural engineering
+  - PyQt5
+abstract: >
+  FRP-ShearPred is a cross-platform desktop application for shear strength
+  prediction of fibre-reinforced polymer (FRP) reinforced concrete beams
+  without shear reinforcement. It integrates five international design codes
+  (GB 50608-2020, ACI 440.1R-15, CSA S806-12, BISE 1999, JSCE 1997), eleven
+  machine learning algorithms with multi-strategy hyperparameter optimisation
+  (Bayesian/Optuna, TLBO, NSGA-II), and a Bayesian-optimised empirical formula.
+  The platform provides SHAP-based model interpretability, batch prediction,
+  and portable model bundles (.frpmdl format).
+preferred-citation:
+  type: article
+  authors:
+    - family-names: Liang
+      given-names: Deyu
+  title: "FRP-ShearPred: An open-source platform for shear capacity prediction of stirrup-free FRP-reinforced concrete beams integrating design codes and ensemble machine learning"
+  journal: "SoftwareX"
+  year: 2026
+  doi: "10.5281/zenodo.XXXXXXX"

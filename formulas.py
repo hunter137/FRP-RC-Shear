@@ -17,7 +17,6 @@ def _split_tensile_strength(fc: float) -> float:
         raise ValueError(f"fc must be positive, got {fc}")
     return 0.241 * fc ** (2.0 / 3.0)
 
-
 def _neutral_axis_depth_ratio(fc: float, rho_f: float, Ef_MPa: float) -> float:
     """
     Cracked neutral-axis depth ratio k for an FRP-RC section.
@@ -29,7 +28,6 @@ def _neutral_axis_depth_ratio(fc: float, rho_f: float, Ef_MPa: float) -> float:
     x     = rho_f * nf
     return np.sqrt(2.0 * x + x ** 2) - x
 
-
 def calc_gb50608(d, b, fc, rho_f_pct, Ef_GPa):
     """
     GB 50608-2020 Cl. 6.3.1 nominal shear capacity [kN].
@@ -38,7 +36,6 @@ def calc_gb50608(d, b, fc, rho_f_pct, Ef_GPa):
     rho_f = rho_f_pct / 100.0
     k     = _neutral_axis_depth_ratio(fc, rho_f, Ef_GPa * 1e3)
     return max(0.86 * _split_tensile_strength(fc) * b * k * d / 1e3, 0.0)
-
 
 def calc_aci440(d, b, fc, rho_f_pct, Ef_GPa):
     """
@@ -49,7 +46,6 @@ def calc_aci440(d, b, fc, rho_f_pct, Ef_GPa):
     k     = _neutral_axis_depth_ratio(fc, rho_f, Ef_GPa * 1e3)
     return max(0.4 * np.sqrt(fc) * b * k * d / 1e3, 0.0)
 
-
 def calc_csa_s806(d, b, fc, rho_f_pct, Ef_GPa):
     """
     CSA S806-12 Cl. 8.4.4.1 nominal shear capacity [kN].
@@ -58,7 +54,6 @@ def calc_csa_s806(d, b, fc, rho_f_pct, Ef_GPa):
     rho_f = rho_f_pct / 100.0
     term  = (rho_f * Ef_GPa * 1e3 * fc) ** (1.0 / 3.0)
     return max(0.0215 * term * b * 0.9 * d / 1e3, 0.0)
-
 
 def calc_bise1999(d, b, fc, rho_f_pct, Ef_GPa):
     """
@@ -75,7 +70,6 @@ def calc_bise1999(d, b, fc, rho_f_pct, Ef_GPa):
     beta_fc  = (fc / 25.0) ** (1.0 / 3.0)                  # concrete
     return max((0.79 / gamma_m) * beta_d * beta_rho * beta_fc * b * d / 1e3, 0.0)
 
-
 def calc_jsce(d, b, fc, rho_f_pct, Ef_GPa):
     """
     JSCE (1997) Standard Specification for Concrete Structures, shear capacity [kN].
@@ -90,8 +84,7 @@ def calc_jsce(d, b, fc, rho_f_pct, Ef_GPa):
     beta_p = min((100.0 * rho_f * Ef_MPa / Es_ref) ** (1.0 / 3.0), 1.5)
     return max(beta_d * beta_p * f_vcd * b * d / 1.3 / 1e3, 0.0)
 
-
-# ── Proposed formula constants (calibrated on training dataset) ──────
+# Proposed formula constants (calibrated on training dataset)
 _C0   = 166.46   # size-effect reference depth [mm]
 _C1   = 0.49     # size-effect exponent
 _C_AD = 2.72     # shear-span transition ratio (a/d*)
@@ -121,7 +114,6 @@ def calc_proposed(d, b, fc, rho_f_pct, Ef_GPa, ad):
     rho_coef = _C_RH * (rho_f * Ef_GPa) ** _C_RP
     return max(ft * b * d * eta_n * lam * rho_coef / 1e3, 0.0)
 
-
 CODE_FUNCS = [
     ('GB 50608-2020', calc_gb50608),
     ('ACI 440.1R-15', calc_aci440),
@@ -129,7 +121,6 @@ CODE_FUNCS = [
     ('BISE (1999)',   calc_bise1999),
     ('JSCE (1997)',   calc_jsce),
 ]
-
 
 def apply_code_formulas(df, include_proposed=True):
     """
@@ -181,7 +172,7 @@ def apply_code_formulas(df, include_proposed=True):
                                   np.maximum(preds, 0.0), np.nan)
     return results
 
-# ── Public aliases for unit-testing ─────────────────────────────────
+# Public aliases for unit-testing
 # The internal helpers use a leading underscore (private convention) but
 # tests import them without the underscore.  These aliases bridge the gap
 # without changing the internal call sites.

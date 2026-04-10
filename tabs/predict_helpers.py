@@ -7,12 +7,12 @@ _compute_pi          Estimate base-learner prediction spread for ensemble models
 BeamSchematicWidget  Displays a beam cross-section image loaded from disk
 """
 
-# ── PyQt5 — complete import set ───────────────────────────────────────
+# PyQt5 — complete import set
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPainter, QPixmap, QColor, QFont, QPen, QBrush
 
-# ── config ─────────────────────────────────────────────────────────────
+# config
 from config import C_BORDER, C_TEXT2
 
 def _compute_pi(model, vec, confidence=0.95):
@@ -56,15 +56,10 @@ def _compute_pi(model, vec, confidence=0.95):
     # individual-tree PI not accessible without retraining — return None
     return None, None, None
 
-
-# ═══════════════════════════════════════════════════════════════════════
 #  BEAM SCHEMATIC WIDGET  —  Loads an external image file
-#
 #  Place one of these files next to main.py:
 #    beam_schematic.jpg / beam_schematic.png / beam_schematic.svg
-#
 #  If no image is found a clean placeholder is shown with instructions.
-# ═══════════════════════════════════════════════════════════════════════
 
 class BeamSchematicWidget(QWidget):
     """
@@ -92,7 +87,7 @@ class BeamSchematicWidget(QWidget):
         self._pixmap = QPixmap()
         self._auto_discover()
 
-    # ── public API ────────────────────────────────────────────────────
+    # public API
     def load_image(self, path: str):
         """Load an image file and repaint."""
         from PyQt5.QtGui import QPixmap
@@ -101,17 +96,20 @@ class BeamSchematicWidget(QWidget):
             self._pixmap = pm
             self.update()
 
-    # ── internals ─────────────────────────────────────────────────────
+    # internals
     def _auto_discover(self):
-        """Look for beam_schematic.* next to this script."""
+        """Look for beam_schematic.* next to main.py (project root)."""
         import os, glob
-        base = os.path.dirname(os.path.abspath(__file__))
-        for ext in self._EXTS:
-            candidates = glob.glob(
-                os.path.join(base, self._STEM + ext))
-            if candidates:
-                self.load_image(candidates[0])
-                return
+        # Search project root (parent of tabs/) and tabs/ itself.
+        tabs_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = os.path.dirname(tabs_dir)
+        for search_dir in (root_dir, tabs_dir):
+            for ext in self._EXTS:
+                candidates = glob.glob(
+                    os.path.join(search_dir, self._STEM + ext))
+                if candidates:
+                    self.load_image(candidates[0])
+                    return
 
     def sizeHint(self):
         return QSize(500, 188)
@@ -123,14 +121,14 @@ class BeamSchematicWidget(QWidget):
         W, H = self.width(), self.height()
 
         if not self._pixmap.isNull():
-            # ── Draw loaded image, scaled to fit, centred ────────────
+            # Draw loaded image, scaled to fit, centred
             pm = self._pixmap.scaled(
                 W, H, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             x0 = (W - pm.width())  // 2
             y0 = (H - pm.height()) // 2
             p.drawPixmap(x0, y0, pm)
         else:
-            # ── Placeholder ──────────────────────────────────────────
+            # Placeholder
             margin = 6
             p.setPen(QPen(QColor(C_BORDER), 1.0, Qt.DashLine))
             p.setBrush(QBrush(QColor('#FAFAF8')))
@@ -152,9 +150,4 @@ class BeamSchematicWidget(QWidget):
 
         p.end()
 
-
-
-
-# ══════════════════════════════════════════════════════════════════════
 #  PredictionSetupDialog  — select calculation methods before predicting
-# ══════════════════════════════════════════════════════════════════════

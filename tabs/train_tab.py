@@ -27,7 +27,7 @@ from sklearn.model_selection import train_test_split
 from config import (
     APP_VERSION, _SHAP_BUNDLE_SAMPLES,
     C_TEXT, C_TEXT2, C_BORDER, C_BORDER_LT, C_ACCENT, C_ACCENT_LT, C_ACCENT_BG,
-    HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_PYMOO, HAS_TORCH,
+    HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_PYMOO,
     NUM_FEAT_COLS, FRP_TYPES,
     HAS_CUDA, CUDA_DEVICE_NAME,
 )
@@ -49,6 +49,7 @@ from .train_dialogs import (
     BundleFolderDialog, Nsga2ObjectiveDialog,
     TlboSettingsDialog, BayesianSettingsDialog,
     PreTrainingDialog, _TrainSummaryDialog,
+    StopSaveDialog,
 )
 
 if HAS_XGB:    import xgboost as xgb
@@ -65,6 +66,7 @@ class TrainTab(QWidget):
         self.feat_cols = None
         self.ohe       = None
         self._results  = {}
+        self._partial_results = {}   # accumulates results as each model finishes; used by StopSaveDialog
         self._X_all    = None
         self._y_all    = None
         self._algo_selection = {n: _is_available(r)
@@ -182,7 +184,7 @@ class TrainTab(QWidget):
                 if key == 'bayesian':
                     self._bayes_btn = flat_btn('Settings')
                     self._bayes_btn.setFixedHeight(22)
-                    self._bayes_btn.setFixedWidth(70)
+                    self._bayes_btn.setFixedWidth(85)
                     self._bayes_btn.setEnabled(False)
                     self._bayes_btn.setToolTip(
                         'Optuna TPE sampler settings.\n'
@@ -193,7 +195,7 @@ class TrainTab(QWidget):
                 elif key == 'tlbo':
                     self._tlbo_btn = flat_btn('Settings')
                     self._tlbo_btn.setFixedHeight(22)
-                    self._tlbo_btn.setFixedWidth(70)
+                    self._tlbo_btn.setFixedWidth(85)
                     self._tlbo_btn.setEnabled(False)
                     self._tlbo_btn.setToolTip(
                         'TLBO search settings.\n'
@@ -204,7 +206,7 @@ class TrainTab(QWidget):
                 elif key == 'nsga2':
                     self._obj_btn = flat_btn('Objectives')
                     self._obj_btn.setFixedHeight(22)
-                    self._obj_btn.setFixedWidth(70)
+                    self._obj_btn.setFixedWidth(85)
                     self._obj_btn.setEnabled(False)
                     self._obj_btn.setToolTip(
                         'Choose the two metrics NSGA-II will optimise simultaneously.\n'
@@ -541,13 +543,25 @@ class TrainTab(QWidget):
             ax = self._curve_fig.add_subplot(111)
 
         for i, (name, pts) in enumerate(self._curve_data.items()):
-            xs = [p[0] for p in pts]
-            ys = [p[1] for p in pts]
+            if not pts:
+                continue
+            # parallel trial fix
+            # With parallel trials, points may arrive out of order.
+            # Sort by eval index and apply cumulative max for a monotone curve.
+            pts_sorted = sorted(pts, key=lambda p: p[0])
+            xs = [p[0] for p in pts_sorted]
+            ys_raw = [p[1] for p in pts_sorted]
+            # cummax
+            ys = []
+            cur_max = float('-inf')
+            for v in ys_raw:
+                cur_max = max(cur_max, v)
+                ys.append(cur_max)
+
             col = _CURVE_PALETTE[i % len(_CURVE_PALETTE)]
             ax.plot(xs, ys, lw=1.4, color=col, label=name)
-            # Mark current best
-            if pts:
-                ax.scatter([xs[-1]], [ys[-1]], s=28, color=col, zorder=5)
+            # Mark the rightmost point.
+            ax.scatter([xs[-1]], [ys[-1]], s=28, color=col, zorder=5)
 
         ax.set_xlabel('Evaluation index', fontsize=8)
         ax.set_ylabel('Best CV R²', fontsize=8)
@@ -692,9 +706,13 @@ class TrainTab(QWidget):
                 self._thread.log.disconnect()
                 self._thread.progress.disconnect()
                 self._thread.trial_score.disconnect()
+                self._thread.model_done.disconnect()
             except Exception:
                 pass
             self._thread = None
+
+        # Reset partial results so Stop dialog starts clean for this run
+        self._partial_results = {}
 
         self._thread = TrainingThread(
             X_tr_s, X_te_s, y_tr, y_te, cfg,
@@ -715,6 +733,7 @@ class TrainTab(QWidget):
         self._thread.log.connect(self._append_log)
         self._thread.trial_score.connect(self._update_curve)
         self._thread.done.connect(self._on_done)
+        self._thread.model_done.connect(self._on_model_done)
 
         # Wrap sig_done emission in a try/except so that any exception inside
         # _on_train_done_inner (MainWindow side) cannot escape the lambda into
@@ -742,9 +761,60 @@ class TrainTab(QWidget):
         sb = self.log.verticalScrollBar()
         sb.setValue(sb.maximum())
 
+    def _on_model_done(self, name: str, result: dict):
+        """Slot: called (via queued signal) each time one model finishes.
+        Accumulates results so StopSaveDialog always has up-to-date data.
+        """
+        self._partial_results[name] = result
+
     def _stop(self):
-        if hasattr(self, '_thread') and self._thread.isRunning():
-            self._thread.stop(); self.stop_btn.setEnabled(False)
+        if not (hasattr(self, '_thread') and self._thread is not None
+                and self._thread.isRunning()):
+            return
+
+        # Build ordered list of all models queued for this run
+        all_models = list(self._thread.models_cfg.keys())
+
+        dlg = StopSaveDialog(
+            all_models=all_models,
+            completed=self._partial_results,
+            parent=self)
+        if dlg.exec_() == QDialog.Rejected:
+            return   # user clicked Cancel — resume training
+
+        # User confirmed stop
+        self._thread.stop()
+        self.stop_btn.setEnabled(False)
+
+        if dlg.action() == 'save':
+            selected = dlg.selected_names()
+            if selected:
+                self._save_partial_bundle(selected)
+
+    def _save_partial_bundle(self, names: list):
+        """Save a subset of already-completed models from _partial_results."""
+        subset = {n: self._partial_results[n] for n in names
+                  if n in self._partial_results}
+        if not subset:
+            return
+        default_name = self._make_bundle_name(subset.keys())
+        default_path = os.path.join(self._models_dir(), default_name)
+        path, _ = QFileDialog.getSaveFileName(
+            self, 'Save Partial Bundle', default_path,
+            'FRP Model Bundle (*.frpmdl)')
+        if not path:
+            return
+        try:
+            ModelIO.save(
+                path, subset, self.scaler,
+                self.feat_cols, self.ohe,
+                X_all=self._X_all,
+                X_shape=self._X_all.shape if self._X_all is not None else None)
+            QMessageBox.information(
+                self, 'Saved',
+                f'Saved {len(subset)} model(s) to:\n{path}')
+        except Exception as e:
+            QMessageBox.critical(self, 'Save Failed', str(e))
 
     def _on_done(self, results):
         self._results = results
@@ -768,9 +838,18 @@ class TrainTab(QWidget):
 
     def _on_done_inner(self, results):
         # Force final curve redraw — throttle may have skipped last points
-        self._curve_timer_pending = False
-        if self._curve_data and self._get_opt() != 'none':
-            self._redraw_curve()
+        # Limit BLAS threads during redraw to avoid conflicts
+        # with residual model thread pools.
+        try:
+            from threadpoolctl import threadpool_limits as _tpl
+            _ctx = _tpl(limits=1, user_api='blas')
+        except ImportError:
+            from contextlib import nullcontext
+            _ctx = nullcontext()
+        with _ctx:
+            self._curve_timer_pending = False
+            if self._curve_data and self._get_opt() != 'none':
+                self._redraw_curve()
         self.log.append('\n' + '='*60)
         self.log.append('[INFO] Training complete — test-set ranking:')
         for name, res in sorted(

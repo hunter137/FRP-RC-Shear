@@ -34,7 +34,7 @@ from PyQt5.QtCore import Qt
 from config import C_ACCENT, C_TEXT2, C_BORDER, PRED_COLS, VAR_LATEX, VAR_PLAIN
 from widgets import flat_btn, panel
 
-# ── Matplotlib academic style ─────────────────────────────────────────
+# Matplotlib academic style
 _ACADEMIC_RC = {
     'font.family':        'serif',
     'font.size':          10,
@@ -56,7 +56,6 @@ _PALETTE = ['#1f4e79', '#c0392b', '#1a7a4a',
             '#7d3c98', '#d35400', '#2e86c1',
             '#117a65', '#6e2f1a']
 
-
 def _kde_curve(data, n_pts=300):
     """Return (x, y) for a KDE. Falls back to histogram density if
     scipy is not available."""
@@ -68,7 +67,6 @@ def _kde_curve(data, n_pts=300):
     except ImportError:
         counts, edges = np.histogram(vals, bins=30, density=True)
         return (edges[:-1] + edges[1:]) / 2, counts
-
 
 def _draw_hist_kde(ax, series, col_name, color='#1f4e79'):
     """Draw histogram + KDE on *ax* for one numeric variable."""
@@ -98,10 +96,7 @@ def _draw_hist_kde(ax, series, col_name, color='#1f4e79'):
     ax.set_title(latex_label, fontweight='bold')
     ax.legend(fontsize=7, frameon=False)
 
-
-# ══════════════════════════════════════════════════════════════════════
 #  _GridConfigDialog
-# ══════════════════════════════════════════════════════════════════════
 
 class _GridConfigDialog(QDialog):
     """Tiny helper: ask the user for rows × cols before drawing a grid."""
@@ -161,10 +156,7 @@ class _GridConfigDialog(QDialog):
     def cols(self):
         return self._cols_spin.value()
 
-
-# ══════════════════════════════════════════════════════════════════════
 #  DistributionDialog
-# ══════════════════════════════════════════════════════════════════════
 
 class DistributionDialog(QDialog):
     """
@@ -193,8 +185,7 @@ class DistributionDialog(QDialog):
 
         self._build_ui()
 
-    # ── UI ────────────────────────────────────────────────────────────
-
+    # UI
     def _build_ui(self):
         root = QHBoxLayout(self)
         root.setSpacing(10)
@@ -287,8 +278,7 @@ class DistributionDialog(QDialog):
         self._draw_placeholder()
         return grp
 
-    # ── Helpers ───────────────────────────────────────────────────────
-
+    # Helpers
     def _select_all(self):
         for cb in self._checks.values():
             cb.setChecked(True)
@@ -321,8 +311,7 @@ class DistributionDialog(QDialog):
             pass
         self._canvas.draw()
 
-    # ── Plotting ──────────────────────────────────────────────────────
-
+    # Plotting
     def _on_plot(self):
         cols = self._selected_cols()
         if not cols:

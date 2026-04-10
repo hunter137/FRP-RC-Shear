@@ -98,7 +98,6 @@ def _scatter_ax(ax, vexp, vpred, label, color, fontsize=9):
             bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
                       edgecolor=C_BORDER, alpha=0.88))
 
-# ══════════════════════════════════════════════════════════════════════
 class _AllCodesDialog(QDialog):
     """Large pop-up grid: all methods in generous subplots."""
 
@@ -158,7 +157,6 @@ class _AllCodesDialog(QDialog):
             fig.savefig(path, dpi=300, bbox_inches='tight')
             QMessageBox.information(self, 'Saved', f'Figure saved to:\n{path}')
 
-# ══════════════════════════════════════════════════════════════════════
 class CodeTab(QWidget):
 
     def __init__(self):
