@@ -25,7 +25,7 @@ from tabs import DataTab, TrainTab, EvalTab, CodeTab, PredictTab, InterpTab
 from model_io import ModelIO
 from widgets import flat_btn
 
-#  SECTION 14 — MAIN WINDOW
+
 
 class MainWindow(QMainWindow):
     def __init__(self):

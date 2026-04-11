@@ -5,8 +5,8 @@ FRP-RC Shear Strength Prediction Platform
 Launch:  python main.py
 
 A PyQt5 desktop application for predicting the shear capacity of
-FRP-reinforced concrete beams without stirrups, using ensemble
-learning models (GBDT, XGBoost, LightGBM, CatBoost, Random Forest).
+FRP-reinforced concrete beams without stirrups, combining five
+international design codes with eight ensemble ML algorithms.
 """
 # Allow multiple Intel OpenMP copies to coexist (harmless when only one is present).
 import os

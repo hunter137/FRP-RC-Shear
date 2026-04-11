@@ -13,7 +13,7 @@ from PyQt5.QtCore import Qt
 from config import C_TEXT, C_TEXT2, C_BORDER, C_ACCENT, C_ACCENT_LT, C_ACCENT_BG
 from widgets import panel, _stat_textbox
 
-#  SECTION 7 — COLUMN MAPPING (database portability)
+# Column mapping — database portability
 
 # Internal canonical keys → human-readable descriptions
 _VAR_CATALOGUE = {
