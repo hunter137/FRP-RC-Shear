@@ -237,6 +237,12 @@ python -m pytest tests/ -v
 
 ---
 
+## Acknowledgments
+
+This work was supported by the National Key R&D Program of China (Grant Nos. 2024YFC38098 and 2024YFC3809803), the Liaoning Xingliao Talents Program for Science and Technology Innovation Team (No. XLYC2404005), and the Technology Research and Development Program of Shenyang Science and Technology Bureau (Grant No. 24-213-3-33).
+
+---
+
 ## Citation
 
 If you use FRP-ShearPred in your research, please cite the following SoftwareX article (forthcoming):
