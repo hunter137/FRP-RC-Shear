@@ -22,12 +22,11 @@ from formulas import (
     calc_csa_s806,
     calc_bise1999,
     calc_jsce,
-    calc_proposed,
 )
 
 # Standard test case
 # d=300mm, b=200mm, f'c=40MPa, ρf=1.0%, Ef=60GPa, a/d=3.0, GFRP
-D, B, FC, RHO, EF, AD = 300, 200, 40.0, 1.0, 60.0, 3.0
+D, B, FC, RHO, EF = 300, 200, 40.0, 1.0, 60.0
 
 class TestHelpers:
     """Tests for helper functions."""
@@ -130,33 +129,6 @@ class TestJSCE:
         # Both capped → should be equal
         assert abs(V_fc80 - V_fc90) < 0.01
 
-class TestProposed:
-    """Proposed Bayesian-optimized empirical formula."""
-
-    def test_standard_case(self):
-        V = calc_proposed(D, B, FC, RHO, EF, AD)
-        assert abs(V - 31.83) < 0.1, f"Expected ~31.83, got {V:.2f}"
-
-    def test_arch_action_low_ad(self):
-        # a/d < 2.72 → arch action boosts V
-        V_low_ad = calc_proposed(D, B, FC, RHO, EF, 1.5)
-        V_high_ad = calc_proposed(D, B, FC, RHO, EF, 4.0)
-        assert V_low_ad > V_high_ad, "Low a/d should give higher V"
-
-    def test_ad_above_transition(self):
-        # a/d > 2.72 → lambda=1, no arch action boost
-        V_3 = calc_proposed(D, B, FC, RHO, EF, 3.0)
-        V_5 = calc_proposed(D, B, FC, RHO, EF, 5.0)
-        assert abs(V_3 - V_5) < 0.01, "lambda=1 for both"
-
-    def test_size_effect(self):
-        V_small = calc_proposed(150, B, FC, RHO, EF, AD)
-        V_large = calc_proposed(900, B, FC, RHO, EF, AD)
-        assert V_small / 150 > V_large / 900, "Size effect should reduce V/d"
-
-    def test_returns_nonnegative(self):
-        V = calc_proposed(100, 100, 20, 0.1, 30, 5.0)
-        assert V >= 0.0
 
 class TestConsistencyAcrossCodes:
     """Cross-code sanity checks."""
@@ -184,16 +156,6 @@ class TestConsistencyAcrossCodes:
             V = func(D, B, FC, RHO, EF)
             assert 10 < V < 100, f"{name}: V={V:.1f} out of range"
 
-    def test_proposed_in_code_range(self):
-        """Proposed formula should be within 50% of code average."""
-        code_vals = [f(D, B, FC, RHO, EF) for _, f in [
-            ("GB50608", calc_gb50608), ("ACI440", calc_aci440),
-            ("CSA", calc_csa_s806), ("BISE", calc_bise1999),
-            ("JSCE", calc_jsce),
-        ]]
-        avg = np.mean(code_vals)
-        V_prop = calc_proposed(D, B, FC, RHO, EF, AD)
-        assert abs(V_prop - avg) / avg < 0.5
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

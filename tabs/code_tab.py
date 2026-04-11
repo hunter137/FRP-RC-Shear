@@ -289,7 +289,7 @@ class CodeTab(QWidget):
             return
         try:
             df   = self._prep_df()
-            self.code_preds = apply_code_formulas(df, include_proposed=False)
+            self.code_preds = apply_code_formulas(df)
             vexp = df['Vexp(kN)'].values.astype(float)
 
             rows = [(label, 'Full dataset', calc_metrics(vexp, preds))

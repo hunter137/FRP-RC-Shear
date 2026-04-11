@@ -7,23 +7,13 @@
 [![Tests](https://github.com/hunter137/FRP-RC-Shear/actions/workflows/tests.yml/badge.svg)](https://github.com/hunter137/FRP-RC-Shear/actions/workflows/tests.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19503522.svg)](https://doi.org/10.5281/zenodo.19503522)
 
-**Author:** Deyu Liang  
-**Affiliation:** Shenyang Jianzhu University; Southeast University  
-**Version:** 1.0  
-**License:** MIT
-
 ---
 
 ## Overview
 
-FRP-ShearPred is a cross-platform desktop application that unifies five international design codes and eight ensemble machine learning algorithms into a single graphical environment for shear strength assessment of fibre-reinforced polymer (FRP) reinforced concrete beams without shear reinforcement.
+FRP-ShearPred is a cross-platform desktop application for shear strength assessment of fibre-reinforced polymer (FRP) reinforced concrete beams without shear reinforcement. It brings together five international design codes and eight ensemble machine learning algorithms in a single graphical environment, so that code predictions, ML predictions, and experimental data can all be compared without switching tools.
 
-The software is intended for structural engineers, researchers, and students who need to:
-
-- compare design-code predictions against experimental or field data;
-- train and evaluate ensemble ML models on custom experimental databases;
-- interpret model predictions via SHAP values, partial dependence plots, and feature importance rankings;
-- export results for further statistical or reliability analysis.
+The software is aimed at structural engineers and researchers who work with FRP-RC experimental databases. A typical workflow is to load a dataset, train one or more ML models with Bayesian or evolutionary hyperparameter optimisation, inspect model behaviour through SHAP and partial dependence plots, and export results for reliability or statistical post-processing.
 
 ---
 
@@ -53,13 +43,13 @@ lock/free toggles and user-defined search ranges for each optimisation strategy.
 
 ## Features
 
-- **Multi-code prediction**: GB 50608-2020, ACI 440.1R-15, CSA S806-12, BISE (1999), JSCE (1997)
-- **8 ML algorithms**: GBDT, XGBoost, LightGBM, CatBoost, Random Forest, Extra Trees, AdaBoost, KNN
-- **Hyperparameter optimisation**: Bayesian (Optuna TPE), TLBO, NSGA-II multi-objective
-- **Model interpretability**: SHAP analysis, feature importance, partial dependence plots
-- **Batch prediction**: Process entire databases with CSV/Excel export
-- **Portable model bundles**: Save/load trained models as `.frpmdl` files
-- **Interactive beam schematic**: Visual cross-section diagram with parameter annotations
+- Five design codes side-by-side: GB 50608-2020, ACI 440.1R-15, CSA S806-12, BISE (1999), JSCE (1997)
+- Eight ensemble ML algorithms: GBDT, XGBoost, LightGBM, CatBoost, Random Forest, Extra Trees, AdaBoost, KNN
+- Three hyperparameter optimisation strategies: Bayesian search (Optuna TPE), TLBO, and NSGA-II multi-objective
+- Model interpretability via SHAP beeswarm plots, Gini feature importance, and response surface analysis
+- Batch prediction over entire CSV/Excel databases with one-click export
+- Portable `.frpmdl` model bundles that carry the fitted model, scaler, encoder, and metadata in one file
+- Interactive beam cross-section schematic with annotated parameter labels
 
 ---
 

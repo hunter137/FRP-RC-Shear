@@ -1,8 +1,8 @@
 """
 formulas.py — Design code shear capacity formulas.
 
-Codes: GB 50608-2020, ACI 440.1R-15, CSA S806-12, BISE (1999),
-       JSCE (1997), and the proposed modification.
+Implements: GB 50608-2020, ACI 440.1R-15, CSA S806-12, BISE (1999),
+            JSCE (1997).
 """
 import numpy as np
 import pandas as pd
@@ -84,35 +84,6 @@ def calc_jsce(d, b, fc, rho_f_pct, Ef_GPa):
     beta_p = min((100.0 * rho_f * Ef_MPa / Es_ref) ** (1.0 / 3.0), 1.5)
     return max(beta_d * beta_p * f_vcd * b * d / 1.3 / 1e3, 0.0)
 
-# Proposed formula constants (calibrated on training dataset)
-_C0   = 166.46   # size-effect reference depth [mm]
-_C1   = 0.49     # size-effect exponent
-_C_AD = 2.72     # shear-span transition ratio (a/d*)
-_C_EX = 1.46     # arch-action exponent
-_C_RH = 0.52     # reinforcement coefficient
-_C_RP = 0.33     # reinforcement exponent
-
-def calc_proposed(d, b, fc, rho_f_pct, Ef_GPa, ad):
-    """
-    Proposed empirical-physics formula (this work).
-
-    V_c = f_t · b · d · eta_n · lambda · rho_coef
-
-    eta_n  : size-effect factor  = 1 / (1 + (d/d_0)^c1)
-    lambda : arch-action factor  = (a/d* / a/d)^c_ex  for a/d > a/d*
-    rho_coef : reinforcement term = C_rh · (rho_f · E_f)^c_rp
-    """
-    rho_f    = rho_f_pct / 100.0
-    ft       = _split_tensile_strength(fc)
-    eta_n    = 1.0 / (1.0 + (d / _C0) ** _C1)
-    if ad <= 1.0:
-        lam = _C_AD ** _C_EX
-    elif ad <= _C_AD:
-        lam = (_C_AD / ad) ** _C_EX
-    else:
-        lam = 1.0
-    rho_coef = _C_RH * (rho_f * Ef_GPa) ** _C_RP
-    return max(ft * b * d * eta_n * lam * rho_coef / 1e3, 0.0)
 
 CODE_FUNCS = [
     ('GB 50608-2020', calc_gb50608),
@@ -122,52 +93,35 @@ CODE_FUNCS = [
     ('JSCE (1997)',   calc_jsce),
 ]
 
-def apply_code_formulas(df, include_proposed=False):
+def apply_code_formulas(df):
     """
     Vectorised application of all design-code functions to DataFrame df.
 
-    All formula functions support scalar inputs; numpy.vectorize is used
-    to broadcast over the DataFrame columns without row-by-row iteration,
-    giving a ~10–50x speed-up on large databases.
-
-    Explicit column-existence checks are used instead of DataFrame.get()
-    because DataFrame.get() returns a column even when it is entirely NaN,
-    ignoring the supplied default value in that edge case.
+    Returns a dict {label: np.ndarray} with one predicted-capacity array
+    per code.  Uses numpy.vectorize to broadcast scalar formula functions
+    over the DataFrame without row-by-row Python iteration (~10–50× faster
+    on large databases).
     """
-    funcs = list(CODE_FUNCS)
-    if include_proposed:
-        funcs.append(('Proposed', None))
-
     def _col(name, default):
-        """Numeric array for *name* column, or constant *default* if absent."""
+        """Return numeric array for column *name*, or constant *default*."""
         if name in df.columns:
             return pd.to_numeric(df[name], errors='coerce').values
         return np.full(len(df), float(default))
 
-    # Extract all columns once to avoid repeated DataFrame indexing
     d   = pd.to_numeric(df['d(mm)'],    errors='coerce').values
     b   = pd.to_numeric(df['b(mm)'],    errors='coerce').values
     fc  = pd.to_numeric(df["f`c(Mpa)"], errors='coerce').values
     rho = _col('ρf(%)', 1.0)
     ef  = _col('Ef(GPa)', 50.0)
-    ad  = _col('a/d',    3.0) if include_proposed else None
 
     results = {}
-    for label, func in funcs:
-        if label == 'Proposed':
-            _vf = np.vectorize(
-                lambda di, bi, fi, ri, ei, ai:
-                    calc_proposed(di, bi, fi, ri, ei, ai)
-                    if all(np.isfinite([di, bi, fi, ri, ei, ai])) else np.nan
-            )
-            preds = _vf(d, b, fc, rho, ef, ad)
-        else:
-            _vf = np.vectorize(
-                lambda di, bi, fi, ri, ei:
-                    func(di, bi, fi, ri, ei)
-                    if all(np.isfinite([di, bi, fi, ri, ei])) else np.nan
-            )
-            preds = _vf(d, b, fc, rho, ef)
+    for label, func in CODE_FUNCS:
+        _vf = np.vectorize(
+            lambda di, bi, fi, ri, ei:
+                func(di, bi, fi, ri, ei)
+                if all(np.isfinite([di, bi, fi, ri, ei])) else np.nan
+        )
+        preds = _vf(d, b, fc, rho, ef)
         results[label] = np.where(np.isfinite(preds),
                                   np.maximum(preds, 0.0), np.nan)
     return results
