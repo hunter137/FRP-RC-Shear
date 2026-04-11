@@ -3,7 +3,7 @@
 **An open-source platform for shear capacity prediction of stirrup-free FRP-reinforced concrete beams integrating design codes and ensemble machine learning**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](https://www.python.org/)
 [![Tests](https://github.com/hunter137/FRP-RC-Shear/actions/workflows/tests.yml/badge.svg)](https://github.com/hunter137/FRP-RC-Shear/actions/workflows/tests.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19503522.svg)](https://doi.org/10.5281/zenodo.19503522)
 
@@ -57,7 +57,7 @@ lock/free toggles and user-defined search ranges for each optimisation strategy.
 
 ### Requirements
 
-- Python 3.8 or later
+- Python 3.9 or later
 - Operating system: Windows 10/11, macOS 12+, or Linux (Ubuntu 20.04+)
 
 ### Option 1 — conda (recommended)
