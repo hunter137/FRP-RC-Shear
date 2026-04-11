@@ -7,6 +7,8 @@ _compute_pi          Estimate base-learner prediction spread for ensemble models
 BeamSchematicWidget  Displays a beam cross-section image loaded from disk
 """
 
+import numpy as np
+
 # PyQt5 — complete import set
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy
 from PyQt5.QtCore import Qt, QSize
@@ -90,7 +92,6 @@ class BeamSchematicWidget(QWidget):
     # public API
     def load_image(self, path: str):
         """Load an image file and repaint."""
-        from PyQt5.QtGui import QPixmap
         pm = QPixmap(path)
         if not pm.isNull():
             self._pixmap = pm
