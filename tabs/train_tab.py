@@ -309,11 +309,11 @@ class TrainTab(QWidget):
         io_grp = panel('Model Archive')
         ig = QVBoxLayout(io_grp)
         ig.setSpacing(4)
-        self.save_btn = flat_btn('Save Bundle')
+        self.save_btn = flat_btn('Save As...')
         self.save_btn.setEnabled(False)
         self.save_btn.setToolTip(
-            'Save all trained models as a .frpmdl bundle.\n'
-            '(Enabled automatically after Run Training completes.)')
+            'Export all trained models to a custom location.\n'
+            'Models are also auto-saved to models/ after each one finishes.')
         self.save_btn.clicked.connect(self._save)
         ig.addWidget(self.save_btn)
         load_file_btn = flat_btn('Load Bundle')
@@ -727,13 +727,13 @@ class TrainTab(QWidget):
             use_gpu=self._use_gpu,
             early_stop=self._early_stop_cb.isChecked(),
             patience=self._patience_sp.value())
-        self._thread.progress.connect(self.progress.setValue)
+        self._thread.progress.connect(self.progress.setValue,   Qt.QueuedConnection)
         # Cap log at 5000 lines to prevent O(n) append cost over long runs.
         self.log.document().setMaximumBlockCount(5000)
-        self._thread.log.connect(self._append_log)
-        self._thread.trial_score.connect(self._update_curve)
-        self._thread.done.connect(self._on_done)
-        self._thread.model_done.connect(self._on_model_done)
+        self._thread.log.connect(self._append_log,              Qt.QueuedConnection)
+        self._thread.trial_score.connect(self._update_curve,    Qt.QueuedConnection)
+        self._thread.done.connect(self._on_done,                Qt.QueuedConnection)
+        self._thread.model_done.connect(self._on_model_done,    Qt.QueuedConnection)
 
         # Wrap sig_done emission in a try/except so that any exception inside
         # _on_train_done_inner (MainWindow side) cannot escape the lambda into
@@ -749,7 +749,7 @@ class TrainTab(QWidget):
                     f'\n[ERROR] Post-training update failed:\n'
                     f'{traceback.format_exc()}')
 
-        self._thread.done.connect(_forward_results)
+        self._thread.done.connect(_forward_results, Qt.QueuedConnection)
         self._thread.start()
 
     def _append_log(self, text):
@@ -763,9 +763,27 @@ class TrainTab(QWidget):
 
     def _on_model_done(self, name: str, result: dict):
         """Slot: called (via queued signal) each time one model finishes.
-        Accumulates results so StopSaveDialog always has up-to-date data.
+        Accumulates results and auto-saves the model to models/ folder.
         """
         self._partial_results[name] = result
+        self._auto_save_model(name, result)
+
+    def _auto_save_model(self, name: str, result: dict):
+        """Silently save a single finished model to models/ with a timestamped filename."""
+        try:
+            from datetime import datetime
+            stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            safe_name = name.replace(' ', '_')
+            filename = f'{safe_name}_{stamp}.frpmdl'
+            path = os.path.join(self._models_dir(), filename)
+            ModelIO.save(
+                path, {name: result}, self.scaler,
+                self.feat_cols, self.ohe,
+                X_all=self._X_all,
+                X_shape=self._X_all.shape if self._X_all is not None else None)
+            self._append_log(f'[Auto-Save] {name} -> {path}')
+        except Exception:
+            self._append_log(f'[Auto-Save][WARN] {name} auto-save failed:\n{traceback.format_exc()}')
 
     def _stop(self):
         if not (hasattr(self, '_thread') and self._thread is not None
@@ -835,14 +853,24 @@ class TrainTab(QWidget):
                 'Your trained models are intact — use "Save Bundle" to '
                 'save them.\n\n'
                 f'Details:\n{msg}')
+        finally:
+            # Delay allow_exit() by one event-loop tick so that the
+            # second queued slot (_forward_results -> sig_done ->
+            # _on_train_done_inner) finishes BEFORE the worker thread
+            # is released.  Without this, DLL_THREAD_DETACH fires
+            # (Intel/MSVC/OpenBLAS cleanup) while _on_train_done_inner
+            # is still running, aborting the process.
+            _t = self._thread
+            if _t is not None:
+                QTimer.singleShot(0, _t.allow_exit)
 
     def _on_done_inner(self, results):
         # Force final curve redraw — throttle may have skipped last points
-        # Limit BLAS threads during redraw to avoid conflicts
-        # with residual model thread pools.
+        # Limit BLAS+OpenMP threads during redraw to avoid conflicts
+        # with residual model thread pools (incl. Intel OpenMP from PyTorch).
         try:
             from threadpoolctl import threadpool_limits as _tpl
-            _ctx = _tpl(limits=1, user_api='blas')
+            _ctx = _tpl(limits=1)
         except ImportError:
             from contextlib import nullcontext
             _ctx = nullcontext()
@@ -984,7 +1012,7 @@ class TrainTab(QWidget):
         default_name = self._make_bundle_name(self._results.keys())
         default_path = os.path.join(self._models_dir(), default_name)
         path, _ = QFileDialog.getSaveFileName(
-            self, 'Save Bundle', default_path,
+            self, 'Save As — Export Bundle', default_path,
             'FRP Model Bundle (*.frpmdl)')
         if not path: return
         try:
@@ -992,7 +1020,7 @@ class TrainTab(QWidget):
                          self.feat_cols, self.ohe,
                          X_all=self._X_all,
                          X_shape=self._X_all.shape if self._X_all is not None else None)
-            QMessageBox.information(self, 'Saved', f'Saved to:\n{path}')
+            QMessageBox.information(self, 'Saved', f'Exported to:\n{path}')
         except Exception as e:
             QMessageBox.critical(self, 'Save Failed', str(e))
 

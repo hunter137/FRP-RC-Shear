@@ -47,8 +47,7 @@ class PredictionSetupDialog(QDialog):
     """
     Opens when the user clicks Run Prediction.
 
-    Left column  : checkboxes for each design-code method and the
-                   proposed formula.
+    Left column  : checkboxes for each design-code method.
     Right column : checkboxes for each ML algorithm in the currently
                    loaded bundle, plus a list of other bundles found
                    in the models/ folder so the user can switch.
@@ -94,12 +93,6 @@ class PredictionSetupDialog(QDialog):
             cb.setStyleSheet('font-size:11px;')
             self._method_cbs[code_label] = cb
             lv.addWidget(cb)
-        # Proposed formula
-        cb_prop = QCheckBox('Proposed Formula  (this work)')
-        cb_prop.setChecked(self._method_sel.get('Proposed', True))
-        cb_prop.setStyleSheet('font-size:11px;')
-        self._method_cbs['Proposed'] = cb_prop
-        lv.addWidget(cb_prop)
         lv.addStretch()
 
         # Toggle-all button

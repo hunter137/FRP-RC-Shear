@@ -28,6 +28,7 @@ from PyQt5.QtCore import Qt, QSize, QFileSystemWatcher
 from PyQt5.QtGui import QFont, QColor
 
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+import matplotlib.pyplot as plt
 
 from config import (
     APP_VERSION, _SHAP_BUNDLE_SAMPLES,
@@ -39,7 +40,7 @@ from config import (
 )
 from widgets import flat_btn, panel, result_box, _stat_textbox, MplCanvas, _spin_field
 from metrics import calc_metrics
-from formulas import CODE_FUNCS, calc_proposed
+from formulas import CODE_FUNCS
 from model_io import ModelIO
 from column_mapping import _auto_map, _build_dataframe
 
@@ -91,7 +92,6 @@ class PredictTab(QWidget):
         self._bundle_path = None   # currently loaded .frpmdl file
         # Prediction method selection (persists between runs)
         self._method_selection = {lbl: True for lbl, _ in CODE_FUNCS}
-        self._method_selection['Proposed'] = True
         self._model_selection  = {}   # {algo_name: True/False}
         self._bundle_cache     = {}   # {norm_path: {label,models,scaler,feat_cols,ohe}}
         self._extra_bundle_sel = {}   # {norm_path: bool} — extra bundles to include
@@ -784,14 +784,6 @@ class PredictTab(QWidget):
                      round(func(d, b, fc, rho, ef), 2), None, None, 'Design code'))
             except Exception as e:
                 data.append((code_label, f'Error: {e}', None, None, 'Design code'))
-        if self._method_selection.get('Proposed', True):
-            try:
-                data.append(
-                    ('Proposed formula',
-                     round(calc_proposed(d, b, fc, rho, ef, ad), 2),
-                     None, None, 'Proposed'))
-            except Exception as e:
-                data.append(('Proposed formula', f'Error: {e}', None, None, 'Proposed'))
 
         if self.trained_models and self.scaler:
             # Full lookup table: all possible numeric features → their values
@@ -893,7 +885,6 @@ class PredictTab(QWidget):
 
         self.res_table.setRowCount(len(data))
         BG = {'Design code': None,
-              'Proposed':    QColor('#D5ECD4'),
               'ML model':    QColor('#D9E8F5')}
         for i, (name, val, lo, hi, src) in enumerate(data):
             pi_str = (f'[{lo:.2f}, {hi:.2f}]'
@@ -912,16 +903,11 @@ class PredictTab(QWidget):
                      if s == 'ML model' and isinstance(v, (int, float))]
         code_vals = [(n, v) for n, v, lo, hi, s in data
                      if s == 'Design code' and isinstance(v, (int, float))]
-        prop_vals = [(n, v) for n, v, lo, hi, s in data
-                     if s == 'Proposed' and isinstance(v, (int, float))]
         if ml_vals:
             best_n, best_v, best_lo, best_hi = ml_vals[0]
             short = best_n.replace('ML: ', '')
-            extra = ''
-            if prop_vals:
-                extra = f'  |  Proposed: {prop_vals[0][1]:.2f} kN'
             self._result_box.setText(
-                f'{short}: {best_v:.2f} kN{extra}')
+                f'{short}: {best_v:.2f} kN')
             if best_lo is not None and best_hi is not None:
                 self._ci_label.setText(
                     f'Base-learner spread (2.5–97.5th pct): '
@@ -931,10 +917,6 @@ class PredictTab(QWidget):
                 self._ci_label.setText(
                     'Estimator spread: not available for this model type '
                     '(supported: Random Forest, Extra Trees, AdaBoost)')
-        elif prop_vals:
-            self._result_box.setText(
-                f'Proposed formula: {prop_vals[0][1]:.2f} kN')
-            self._ci_label.setText('')
         elif code_vals:
             self._result_box.setText(
                 f'GB 50608-2020: {code_vals[0][1]:.2f} kN')
@@ -953,7 +935,6 @@ class PredictTab(QWidget):
                   .replace('CSA S806-12',   'CSA S806')
                   .replace('BISE (1999)',    'BISE')
                   .replace('JSCE (1997)',    'JSCE')
-                  .replace('Proposed formula', 'Proposed')
                   .replace('ML: ', '')
                  for m in methods]
         colors = [CODE_COLORS.get(m, ALGO_COLORS.get(
@@ -992,7 +973,7 @@ class PredictTab(QWidget):
         SHORT = {
             'GB 50608-2020': 'GB 50608', 'ACI 440.1R-15': 'ACI 440',
             'CSA S806-12':   'CSA S806',  'BISE (1999)':   'BISE',
-            'JSCE (1997)':   'JSCE',       'Proposed formula': 'Proposed',
+            'JSCE (1997)':   'JSCE',
         }
         valid = [(n, v, s) for n, v, lo, hi, s in data if isinstance(v, (int, float))]
         if not valid:
@@ -1171,12 +1152,6 @@ class PredictTab(QWidget):
             except Exception:
                 continue
 
-        # Also evaluate the proposed formula at best_ad
-        try:
-            v_proposed = calc_proposed(d, b, fc, rho, ef, best_ad)
-        except Exception:
-            v_proposed = float('nan')
-
         rows = [
             # (display name, value string, unit, row_type)
             # row_type: 'normal'|'highlight'|'separator'|'result'|'target'
@@ -1187,8 +1162,6 @@ class PredictTab(QWidget):
             ('FRP reinforcement ratio  \u03c1\u2071', f'{rho:.3f}', '%',   'normal'),
             ('FRP elastic modulus  E\u2071',   f'{ef:.1f}',     'GPa',     'normal'),
             ('ML predicted  V\u0302\u209c',   f'{best_vpred:.2f}', 'kN',  'result'),
-            ('Proposed formula  V\u1d9c', f'{v_proposed:.2f}'
-             if np.isfinite(v_proposed) else '\u2014',          'kN',      'normal'),
             ('Target capacity  V\u209c',  f'{target:.2f}',      'kN',      'target'),
             ('Deviation  \u0394V',        f'{best_diff:.2f}',   'kN',      'normal'),
         ]
@@ -1216,7 +1189,7 @@ class PredictTab(QWidget):
                 if rtype in ('result', 'target', 'highlight'):
                     it.setFont(bold_f)
                 self._nsga_table.setItem(i, j, it)
-        self._nsga_table.setRowHeight(6, 28)   # ML result row slightly taller
+        self._nsga_table.setRowHeight(5, 28)   # ML result row slightly taller
 
         deviation_pct = best_diff / target * 100 if target > 0 else 0.0
         self._nsga_result_box.setText(
@@ -1234,12 +1207,6 @@ class PredictTab(QWidget):
                      CODE_COLORS.get(code_label, '#888')))
             except Exception:
                 pass
-        try:
-            all_data.append(
-                ('Proposed', calc_proposed(d, b, fc, rho, ef, best_ad),
-                 CODE_COLORS['Proposed']))
-        except Exception:
-            pass
         all_data.append(
             (f'{name}\u207f (NSGA-II)', best_vpred,
              ALGO_COLORS.get(name, C_ACCENT)))

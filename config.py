@@ -83,7 +83,6 @@ CODE_COLORS = {
     'CSA S806-12':   '#7A4D00',
     'BISE (1999)':   '#5B2D8A',
     'JSCE (1997)':   '#276227',
-    'Proposed':      '#1A5FA0',
 }
 
 # Feature definitions

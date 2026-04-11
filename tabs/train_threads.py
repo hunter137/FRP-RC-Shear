@@ -1,11 +1,12 @@
 import warnings
 import traceback
+import threading
 import multiprocessing
 import joblib
 import numpy as np
 from sklearn.model_selection import cross_val_score
 from sklearn.exceptions import ConvergenceWarning
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, QObject, pyqtSignal
 from PyQt5.QtWidgets import QMessageBox
 
 from optimization import (
@@ -92,6 +93,7 @@ class _TLBOMultiThread(QThread):
             except Exception:
                 pass
             self.all_done.emit()
+            self.exec_()
 
     def _run_tasks(self):
         for task in self._tasks:
@@ -130,7 +132,15 @@ class _TLBOMultiThread(QThread):
                 self.algo_done.emit(name, bp, bs)
 
 
-class TrainingThread(QThread):
+class TrainingThread(QObject):
+    """
+    Training worker that runs in a standard threading.Thread rather than
+    a QThread.  On Windows, QThread uses CreateThread/ExitThread, which
+    triggers DLL_THREAD_DETACH in pthreads-based OpenBLAS.  That cleanup
+    crashes when the thread was not created via pthread_create.
+    threading.Thread uses _beginthreadex, which is compatible with the
+    pthreads DLL and avoids the abort().
+    """
     progress    = pyqtSignal(int)
     log         = pyqtSignal(str)
     done        = pyqtSignal(dict)
@@ -163,6 +173,17 @@ class TrainingThread(QThread):
         self.early_stop       = early_stop
         self.patience         = patience
         self._stop            = False
+        self._worker          = None  # threading.Thread
+        self._exit_event      = threading.Event()  # set by main thread after _on_done
+
+    def start(self):
+        """Start the training worker in a standard Python thread."""
+        self._worker = threading.Thread(target=self.run, daemon=True,
+                                        name='TrainingWorker')
+        self._worker.start()
+
+    def isRunning(self):
+        return self._worker is not None and self._worker.is_alive()
 
     def stop(self):
         self._stop = True
@@ -198,7 +219,7 @@ class TrainingThread(QThread):
             _blas_ctx = nullcontext()
 
         # Force loky backend so each CV fold runs in an isolated process,
-        # avoiding OpenMP runtime conflicts inside a QThread on Windows.
+        # avoiding OpenMP runtime conflicts inside a worker thread on Windows.
         results = {}
         try:
             with joblib.parallel_backend('loky', n_jobs=_N_SAFE):
@@ -207,14 +228,30 @@ class TrainingThread(QThread):
         except Exception:
             self.log.emit(f'\n[FATAL] Unexpected error:\n{traceback.format_exc()}')
         finally:
-            # Wait for loky workers to exit cleanly before emitting done,
-            # preventing OpenMP cleanup races on Windows.
+            # Drain the loky process pool before emitting done so that all
+            # worker subprocess cleanup finishes before Qt delivers the signal.
             try:
                 from joblib.externals.loky import get_reusable_executor
                 get_reusable_executor(max_workers=0).shutdown(wait=True)
             except Exception:
                 pass
             self.done.emit(results)
+            # Wait until the main thread has finished processing results.
+            self._exit_event.wait(timeout=60)
+            # CRITICAL: Do NOT return here.  On Windows, a threading.Thread
+            # exiting normally triggers DLL_THREAD_DETACH in every loaded DLL
+            # (OpenBLAS pthreads, Intel OpenMP, etc.).  The pthreads cleanup
+            # code aborts the process with no Python traceback.
+            # Solution: block forever on a new Event.  As a daemon=True thread
+            # the OS kills us silently when the process exits — DLL_THREAD_DETACH
+            # is NOT called for threads killed by process exit, only for threads
+            # that return normally.  A sleeping daemon thread costs ~0 CPU.
+            threading.Event().wait()  # never returns; killed by OS on exit
+
+    def allow_exit(self):
+        """Called from the main thread (inside _on_done) once it is safe
+        for the worker thread to exit.  Replaces exec_()/quit() pattern."""
+        self._exit_event.set()
 
     def _run_inner(self, results):
         warnings.filterwarnings('ignore', category=ConvergenceWarning)

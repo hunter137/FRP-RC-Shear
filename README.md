@@ -15,7 +15,7 @@
 
 ## Overview
 
-FRP-ShearPred is a cross-platform desktop application that unifies five international design codes, eight ensemble machine learning algorithms, and a Bayesian-optimised empirical formula into a single graphical environment for shear strength assessment of fibre-reinforced polymer (FRP) reinforced concrete beams without shear reinforcement.
+FRP-ShearPred is a cross-platform desktop application that unifies five international design codes and eight ensemble machine learning algorithms into a single graphical environment for shear strength assessment of fibre-reinforced polymer (FRP) reinforced concrete beams without shear reinforcement.
 
 The software is intended for structural engineers, researchers, and students who need to:
 
@@ -28,17 +28,31 @@ The software is intended for structural engineers, researchers, and students who
 
 ## Screenshots
 
-<!-- Add screenshots to docs/screenshots/ then update paths below -->
-<!-- ![Prediction Tab](docs/screenshots/prediction_tab.png) -->
-<!-- ![Training Tab](docs/screenshots/training_tab.png) -->
-<!-- ![SHAP Dialog](docs/screenshots/shap_dialog.png) -->
+**Prediction Tab** — enter beam parameters, load a trained model bundle, and
+compare all design-code predictions against the ML model in a single view.
+
+![Prediction Tab](docs/screenshots/01_prediction_tab.png)
+
+**Training Summary** — ranked performance table for all eight algorithms after
+Bayesian optimisation, with live convergence curves.
+
+![Training Summary](docs/screenshots/02_training_summary.png)
+
+**Algorithm Configuration** — per-algorithm hyperparameter editor with
+lock/free toggles and user-defined search ranges for each optimisation strategy.
+
+![Algorithm Configuration](docs/screenshots/03_algorithm_config.png)
+
+**Feature Importance** — Gini impurity-based ranking for the best model
+(Extra Trees shown); all diagnostic plots are exportable as CSV or image files.
+
+![Feature Importance](docs/screenshots/04_feature_importance.png)
 
 ---
 
 ## Features
 
 - **Multi-code prediction**: GB 50608-2020, ACI 440.1R-15, CSA S806-12, BISE (1999), JSCE (1997)
-- **Proposed empirical formula**: Bayesian-optimised formula incorporating size-effect, arch-action, and FRP reinforcement stiffness terms
 - **8 ML algorithms**: GBDT, XGBoost, LightGBM, CatBoost, Random Forest, Extra Trees, AdaBoost, KNN
 - **Hyperparameter optimisation**: Bayesian (Optuna TPE), TLBO, NSGA-II multi-objective
 - **Model interpretability**: SHAP analysis, feature importance, partial dependence plots
@@ -105,17 +119,17 @@ pip install catboost
 ### Command-Line Training
 
 ```bash
-# Train all models with Bayesian optimisation (1000 trials, paper default)
-python train_frp_models.py --data "database.xls"
+# Train all models with Bayesian optimisation using the included example dataset
+python train_frp_models.py --data data/testdata.xls
 
 # Train specific models only
-python train_frp_models.py --data "database.xls" --only LightGBM KNN
+python train_frp_models.py --data data/testdata.xls --only LightGBM KNN
 
 # Reduce trials for a faster exploratory run
-python train_frp_models.py --data "database.xls" --trials 200
+python train_frp_models.py --data data/testdata.xls --trials 200
 
 # Set a wall-clock time limit (minutes)
-python train_frp_models.py --data "database.xls" --time-limit 60
+python train_frp_models.py --data data/testdata.xls --time-limit 60
 ```
 
 ### Batch Prediction
@@ -187,12 +201,17 @@ FRP-RC-Shear/
 ├── README.md                # This file
 ├── CITATION.cff             # Machine-readable citation metadata
 ├── CHANGELOG.md             # Version history
+├── data/
+│   └── testdata.xls         # Example experimental database (728 specimens)
 ├── models/                  # Pre-trained model bundles (.frpmdl)
 ├── docs/
 │   └── screenshots/         # Application screenshots
 ├── tests/
 │   ├── test_formulas.py     # Unit tests — design code formulas
 │   └── test_metrics.py      # Unit tests — evaluation metrics
+├── tools/
+│   ├── diagnose_crash.py    # Crash diagnostics tool (run instead of main.py)
+│   └── README.md            # Usage instructions for tools
 └── tabs/
     ├── data_tab.py
     ├── train_tab.py
@@ -201,6 +220,21 @@ FRP-RC-Shear/
     ├── predict_tab.py
     └── interp_tab.py
 ```
+
+---
+
+## Crash Diagnostics
+
+If the application exits silently or crashes without a visible error message,
+run the diagnostics tool instead of `main.py`:
+
+```bash
+python tools/diagnose_crash.py
+```
+
+This generates `crash_diag.log` in the project root.  Attach that file when
+opening a bug report.  See [tools/README.md](tools/README.md) for the full list
+of what the tool captures.
 
 ---
 

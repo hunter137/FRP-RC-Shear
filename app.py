@@ -282,7 +282,7 @@ class MainWindow(QMainWindow):
         # Limit BLAS threads during post-training updates to prevent OpenMP conflicts.
         try:
             from threadpoolctl import threadpool_limits as _tpl
-            _ctx = _tpl(limits=1, user_api='blas')
+            _ctx = _tpl(limits=1)  # limits both blas AND openmp
         except ImportError:
             from contextlib import nullcontext
             _ctx = nullcontext()

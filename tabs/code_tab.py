@@ -62,7 +62,6 @@ _METHOD_COLORS = {
     'CSA S806-12':   '#2ca02c',
     'BISE (1999)':   '#9467bd',
     'JSCE (1997)':   '#8c564b',
-    'Proposed':      '#17becf',
 }
 _METHOD_COLORS.update(CODE_COLORS)
 
@@ -290,7 +289,7 @@ class CodeTab(QWidget):
             return
         try:
             df   = self._prep_df()
-            self.code_preds = apply_code_formulas(df, include_proposed=True)
+            self.code_preds = apply_code_formulas(df, include_proposed=False)
             vexp = df['Vexp(kN)'].values.astype(float)
 
             rows = [(label, 'Full dataset', calc_metrics(vexp, preds))
@@ -331,8 +330,7 @@ class CodeTab(QWidget):
             return f'{v:.4f}' if isinstance(v, float) and not np.isnan(v) else '—'
 
         for i, (nm, ds, m) in enumerate(rows):
-            is_ml       = nm.startswith('ML:')
-            is_proposed = (nm == 'Proposed')
+            is_ml = nm.startswith('ML:')
             vals = [nm, ds, fv(m,'R2'), fv(m,'r'), fv(m,'RMSE'),
                     fv(m,'MAE'), fv(m,'MAPE'), fv(m,'mean_ratio'),
                     fv(m,'cov'), fv(m,'safety_pct')]
@@ -342,9 +340,6 @@ class CodeTab(QWidget):
                     Qt.AlignLeft|Qt.AlignVCenter if j==0 else Qt.AlignCenter)
                 if is_ml:
                     it.setBackground(QColor('#D9E8F5'))
-                elif is_proposed:
-                    it.setBackground(QColor('#D5ECD4'))
-                    it.setFont(bold)
                 self.tbl.setItem(i, j, it)
 
         self.tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)

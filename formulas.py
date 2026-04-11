@@ -122,7 +122,7 @@ CODE_FUNCS = [
     ('JSCE (1997)',   calc_jsce),
 ]
 
-def apply_code_formulas(df, include_proposed=True):
+def apply_code_formulas(df, include_proposed=False):
     """
     Vectorised application of all design-code functions to DataFrame df.
 
