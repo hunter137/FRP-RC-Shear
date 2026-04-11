@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
 [![Tests](https://github.com/hunter137/FRP-RC-Shear/actions/workflows/tests.yml/badge.svg)](https://github.com/hunter137/FRP-RC-Shear/actions/workflows/tests.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19503522.svg)](https://doi.org/10.5281/zenodo.19503522)
 
 **Author:** Deyu Liang  
 **Affiliation:** Shenyang Jianzhu University; Southeast University  
@@ -258,6 +259,7 @@ If you use FRP-ShearPred in your research, please cite the following SoftwareX a
              integrating design codes and ensemble machine learning},
   journal = {SoftwareX},
   year    = {2026},
+  doi     = {10.5281/zenodo.19503522},
 }
 ```
 
