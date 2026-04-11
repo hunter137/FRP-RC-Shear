@@ -744,7 +744,6 @@ class TrainTab(QWidget):
             try:
                 self.sig_done.emit(r, X_te_s, y_te, X_tr_s, y_tr, X_all_s, y)
             except Exception:
-                import traceback
                 self._append_log(
                     f'\n[ERROR] Post-training update failed:\n'
                     f'{traceback.format_exc()}')
@@ -771,7 +770,6 @@ class TrainTab(QWidget):
     def _auto_save_model(self, name: str, result: dict):
         """Silently save a single finished model to models/ with a timestamped filename."""
         try:
-            from datetime import datetime
             stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             safe_name = name.replace(' ', '_')
             filename = f'{safe_name}_{stamp}.frpmdl'
@@ -994,7 +992,6 @@ class TrainTab(QWidget):
         4+       → 'Bundle_9models_YYYYMMDD_HHMM.frpmdl'
         Spaces in model names are replaced with underscores.
         """
-        from datetime import datetime
         # Sanitize: replace spaces with underscores for valid filenames
         names = [n.replace(' ', '_') for n in model_names]
         if len(names) == 0:

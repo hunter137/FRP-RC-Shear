@@ -81,7 +81,6 @@ def _xgb_gpu_kwargs():
         return {}
     try:
         import xgboost as _xgb
-        from packaging.version import Version
         if Version(_xgb.__version__) >= Version('2.0.0'):
             return {'device': 'cuda'}
         else:
@@ -168,7 +167,6 @@ def _lgb_gpu_kwargs():
         return {}
     try:
         import lightgbm as _lgb
-        from packaging.version import Version
         if Version(_lgb.__version__) >= Version('4.0.0'):
             return {'device_type': 'gpu'}
         else:

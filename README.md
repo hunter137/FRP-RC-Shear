@@ -249,7 +249,8 @@ If you use FRP-ShearPred in your research, please cite the following SoftwareX a
 
 ```bibtex
 @article{liang2026frpshearpred,
-  author  = {Liang, Deyu},
+  author  = {Liang, Deyu and Cao, Jingwen and Liu, Jinlong and
+             Cui, Yujun and Zhang, Yuzhuo and Xue, Xingwei and Xu, Lei},
   title   = {{FRP-ShearPred}: An open-source platform for shear capacity
              prediction of stirrup-free {FRP}-reinforced concrete beams
              integrating design codes and ensemble machine learning},

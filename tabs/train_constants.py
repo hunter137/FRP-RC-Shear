@@ -38,11 +38,6 @@ from config import (
     NUM_FEAT_COLS, FRP_TYPES, FEAT_LABELS,
     ALGO_COLORS, CODE_COLORS,
 )
-from optimization import (
-    _ps_gbdt, _ps_xgb, _ps_lgb, _ps_cat, _ps_rf,
-    _factory_for, tlbo_optimize, _optuna_optimize, nsga2_optimize,
-    PARAM_SPACES, NSGA2_OBJECTIVES, _GPU_CAPABLE,
-)
 
 # sklearn OneHotEncoder sparse kwarg shim
 # sklearn < 1.2 : sparse=False  |  sklearn >= 1.2 : sparse_output=False

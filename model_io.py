@@ -9,7 +9,6 @@ from datetime import datetime
 from config import APP_VERSION, _SHAP_BUNDLE_SAMPLES
 
 
-
 class FittedModel:
     """Single fitted model, picklable (no lambdas)."""
     def __init__(self, model):

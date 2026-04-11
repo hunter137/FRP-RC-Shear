@@ -46,7 +46,6 @@ from PyQt5.QtWidgets import (
     QListWidget, QListWidgetItem, QSpinBox, QAbstractItemView,
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
-from PyQt5.QtGui import QColor, QFont
 
 from config import (
     C_TEXT, C_TEXT2, C_BORDER, C_BORDER_LT,

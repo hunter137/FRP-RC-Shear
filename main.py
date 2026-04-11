@@ -14,7 +14,6 @@ os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 os.environ['KMP_WARNINGS']         = 'FALSE'
 
 
-
 # Write a native stack trace to stderr on C-level crashes.
 import faulthandler, sys as _sys
 faulthandler.enable(file=_sys.stderr, all_threads=True)
@@ -25,7 +24,6 @@ qt_compat.patch()
 
 import sys
 import warnings
-import os
 
 from sklearn.exceptions import ConvergenceWarning
 warnings.filterwarnings('ignore', category=ConvergenceWarning)

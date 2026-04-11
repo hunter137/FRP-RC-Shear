@@ -26,7 +26,6 @@ from model_io import ModelIO
 from widgets import flat_btn
 
 
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()

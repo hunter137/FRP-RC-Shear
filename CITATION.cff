@@ -9,7 +9,27 @@ doi: "10.5281/zenodo.19503522"
 authors:
   - family-names: Liang
     given-names: Deyu
-    affiliation: "Shenyang Jianzhu University; Southeast University"
+    affiliation: "School of Transportation and Surveying Engineering, Shenyang Jianzhu University, Shenyang, China"
+  - family-names: Cao
+    given-names: Jingwen
+    affiliation: "School of Transportation and Surveying Engineering, Shenyang Jianzhu University, Shenyang, China"
+  - family-names: Liu
+    given-names: Jinlong
+    affiliation: "School of Civil Engineering, Southeast University, Nanjing, China"
+    email: "liujinlong@seu.edu.cn"
+  - family-names: Cui
+    given-names: Yujun
+    affiliation: "State Key Laboratory of Bridge Safety and Resilience, Beijing University of Technology, Beijing, China"
+  - family-names: Zhang
+    given-names: Yuzhuo
+    affiliation: "School of Management, Shenyang Jianzhu University, Shenyang, China"
+  - family-names: Xue
+    given-names: Xingwei
+    affiliation: "School of Transportation and Surveying Engineering, Shenyang Jianzhu University, Shenyang, China"
+  - family-names: Xu
+    given-names: Lei
+    affiliation: "Laboratory of Construction Materials, Ecole Polytechnique Fédérale de Lausanne, 1015, Switzerland"
+    email: "lei.xu@epfl.ch"
 keywords:
   - FRP-reinforced concrete
   - shear strength prediction
@@ -31,6 +51,18 @@ preferred-citation:
   authors:
     - family-names: Liang
       given-names: Deyu
+    - family-names: Cao
+      given-names: Jingwen
+    - family-names: Liu
+      given-names: Jinlong
+    - family-names: Cui
+      given-names: Yujun
+    - family-names: Zhang
+      given-names: Yuzhuo
+    - family-names: Xue
+      given-names: Xingwei
+    - family-names: Xu
+      given-names: Lei
   title: "FRP-ShearPred: An open-source platform for shear capacity prediction of stirrup-free FRP-reinforced concrete beams integrating design codes and ensemble machine learning"
   journal: "SoftwareX"
   year: 2026

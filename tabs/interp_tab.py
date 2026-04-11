@@ -54,7 +54,6 @@ class PdpWorker(QThread):
 
     def run(self):
         try:
-            from sklearn.inspection import PartialDependenceDisplay
             disp = PartialDependenceDisplay.from_estimator(
                 self._model, self._X, [self._feat_idx],
                 feature_names=self._feat_names)

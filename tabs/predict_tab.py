@@ -30,14 +30,6 @@ from PyQt5.QtGui import QFont, QColor
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 import matplotlib.pyplot as plt
 
-from config import (
-    APP_VERSION, _SHAP_BUNDLE_SAMPLES,
-    C_WIN_BG, C_PANEL_BG, C_ACCENT, C_ACCENT_LT, C_ACCENT_BG,
-    C_TEXT, C_TEXT2, C_BORDER, C_BORDER_LT,
-    C_SUCCESS, C_SUCCESS_BG, C_DANGER, C_HEADER_BG,
-    ALGO_COLORS, CODE_COLORS, NUM_FEAT_COLS, FRP_TYPES, FEAT_LABELS,
-    HAS_PYMOO, HAS_SHAP,
-)
 from widgets import flat_btn, panel, result_box, _stat_textbox, MplCanvas, _spin_field
 from metrics import calc_metrics
 from formulas import CODE_FUNCS
@@ -56,7 +48,6 @@ from PyQt5.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame,
     QListWidget, QListWidgetItem, QScrollArea,
 )
-from PyQt5.QtCore import Qt, QSize, QFileSystemWatcher
 from PyQt5.QtGui import QFont, QColor, QPainter, QPixmap, QPen, QBrush
 
 from config import (
@@ -133,7 +124,6 @@ class PredictTab(QWidget):
 
     def _watch_models_dir(self):
         """Register the project-root and models/ dir with the file-system watcher."""
-        import os
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         dirs_to_watch = [base, os.path.join(base, 'models')]
         for d in dirs_to_watch:
@@ -149,7 +139,6 @@ class PredictTab(QWidget):
         """Rescan disk and repopulate the bundle combo-box.
         If auto_load=True, automatically load the first bundle found.
         """
-        import os
         paths = self._scan_dirs()
         self._bundle_combo.blockSignals(True)
         self._bundle_combo.clear()
@@ -179,7 +168,6 @@ class PredictTab(QWidget):
 
     def _on_combo_changed(self, index):
         """Auto-load the bundle whenever the combo selection changes."""
-        import os
         path = self._bundle_combo.itemData(index)
         if not path or not os.path.isfile(path):
             return   # empty/placeholder item — ignore
@@ -210,7 +198,6 @@ class PredictTab(QWidget):
 
     def _load_selected_bundle(self):
         """Load the .frpmdl file currently selected in the combo-box."""
-        import os
         path = self._bundle_combo.currentData()
         if not path or not os.path.isfile(path):
             QMessageBox.warning(self, 'File Not Found',
@@ -230,7 +217,6 @@ class PredictTab(QWidget):
 
     def _load_bundle_from_path(self, path):
         try:
-            from model_io import ModelIO
             load_result = ModelIO.load(path)
             if len(load_result) == 8:
                 results, scaler, feat_cols, ohe, shap_cache, meta, _, _ = load_result

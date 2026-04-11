@@ -60,7 +60,6 @@ def _xgb_gpu_kwargs():
     """Return correct XGBoost GPU kwargs for the installed version."""
     try:
         import xgboost as _x
-        from packaging.version import Version
         return ({'device': 'cuda'} if Version(_x.__version__) >= Version('2.0.0')
                 else {'tree_method': 'gpu_hist'})
     except Exception:

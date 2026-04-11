@@ -612,7 +612,6 @@ class BatchPredictionDialog(QDialog):
         self._preview_lbl.setText('')
 
     def _load_file(self, path: str):
-        import os
         try:
             if path.endswith('.csv'):
                 raw = pd.read_csv(path)
