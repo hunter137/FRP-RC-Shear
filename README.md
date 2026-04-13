@@ -17,6 +17,18 @@ The software is aimed at structural engineers and researchers who work with FRP-
 
 ---
 
+## Demo Video
+
+<video src="https://raw.githubusercontent.com/hunter137/FRP-RC-Shear/main/docs/video.mp4" controls width="100%" style="max-width:900px">
+  Your browser does not support the video tag.
+  <a href="https://raw.githubusercontent.com/hunter137/FRP-RC-Shear/main/docs/video.mp4">Download the demo video</a>
+</video>
+
+> The video above walks through a complete workflow: loading an experimental database, training ML models with Bayesian optimisation, running single and batch predictions, and inspecting model interpretability via SHAP plots.
+> If the video does not play inline, [click here to download it](https://raw.githubusercontent.com/hunter137/FRP-RC-Shear/main/docs/video.mp4).
+
+---
+
 ## Screenshots
 
 **Prediction Tab** — enter beam parameters, load a trained model bundle, and
