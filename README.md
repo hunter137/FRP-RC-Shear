@@ -41,18 +41,6 @@ lock/free toggles and user-defined search ranges for each optimisation strategy.
 
 ---
 
-## Demo
-
-The video below walks through a complete workflow — loading an experimental database, training models with Bayesian optimisation, running single and batch predictions, and exporting results.
-
-<video src="docs/video.mp4" controls width="100%">
-  <a href="docs/video.mp4">▶ Watch the demo video</a>
-</video>
-
-> **Tip:** If the video does not play inline, click [here](docs/video.mp4) to open it directly, or clone the repository and open `docs/video.mp4` locally.
-
----
-
 ## Features
 
 - Five design codes side-by-side: GB 50608-2020, ACI 440.1R-15, CSA S806-12, BISE (1999), JSCE (1997)
@@ -208,8 +196,7 @@ FRP-RC-Shear/
 │   └── testdata.xls         # Example experimental database (728 specimens)
 ├── models/                  # Pre-trained model bundles (.frpmdl)
 ├── docs/
-│   ├── screenshots/         # Application screenshots
-│   └── video.mp4            # Demo walkthrough video
+│   └── screenshots/         # Application screenshots
 ├── tests/
 │   ├── test_formulas.py     # Unit tests — design code formulas
 │   └── test_metrics.py      # Unit tests — evaluation metrics

@@ -212,8 +212,10 @@ class TrainingThread(QObject):
         # Limit BLAS threads to prevent MKL/OpenBLAS contention across
         # loky workers; does not affect XGBoost/LightGBM/CatBoost threading.
         try:
+            from threadpoolctl import threadpool_limits as _tpl
             _blas_ctx = _tpl(limits=1, user_api='blas')
         except ImportError:
+            from contextlib import nullcontext
             _blas_ctx = nullcontext()
 
         # Force loky backend so each CV fold runs in an isolated process,
