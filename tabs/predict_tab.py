@@ -36,7 +36,7 @@ from formulas import CODE_FUNCS
 from model_io import ModelIO
 from column_mapping import _auto_map, _build_dataframe
 
-from .predict_helpers import _compute_pi, BeamSchematicWidget
+from .predict_helpers import compute_conformal_pi, BeamSchematicWidget
 from .predict_dialogs import PredictionSetupDialog, BatchPredictionDialog
 
 from PyQt5.QtWidgets import (
@@ -80,6 +80,7 @@ class PredictTab(QWidget):
         self.scaler    = None
         self.feat_cols = None
         self.ohe       = None
+        self.conformal_q = {}      # {algo_name: float} — 95 % conformal quantiles
         self._bundle_path = None   # currently loaded .frpmdl file
         # Prediction method selection (persists between runs)
         self._method_selection = {lbl: True for lbl, _ in CODE_FUNCS}
@@ -94,6 +95,11 @@ class PredictTab(QWidget):
         self._batch_in_path    = None
         # Reference to CodeTab instance — injected by MainWindow after construction
         self._codes_tab_ref    = None
+        # Training data feature ranges extracted from MinMaxScaler
+        # {key: (min_val, max_val)} in original physical units
+        self._train_ranges  = {}
+        # "?" range hint buttons, one per numeric input key
+        self._range_btns    = {}
         self._build_ui()
         # Auto-scan on startup: populate dropdown AND load the first bundle
         self._refresh_bundle_list(auto_load=True)
@@ -218,17 +224,22 @@ class PredictTab(QWidget):
     def _load_bundle_from_path(self, path):
         try:
             load_result = ModelIO.load(path)
-            if len(load_result) == 8:
+            if len(load_result) == 9:
+                results, scaler, feat_cols, ohe, shap_cache, meta, _, _, conformal_q = load_result
+            elif len(load_result) == 8:
                 results, scaler, feat_cols, ohe, shap_cache, meta, _, _ = load_result
+                conformal_q = {}
             else:
                 results, scaler, feat_cols, ohe, shap_cache, meta = load_result
+                conformal_q = {}
         except Exception as ex:
             QMessageBox.critical(self, 'Load Failed', str(ex))
             return
 
         self._bundle_path = path
         self.load_models(results, scaler, feat_cols, ohe,
-                         shap_cache=shap_cache, meta=meta)
+                         shap_cache=shap_cache, meta=meta,
+                         conformal_q=conformal_q)
 
         # Surface file name in combo (add if not already there)
         # Block signals to prevent _on_combo_changed firing while we
@@ -243,13 +254,72 @@ class PredictTab(QWidget):
         self._bundle_combo.blockSignals(False)
 
     def load_models(self, results, scaler, feat_cols, ohe=None,
-                    shap_cache=None, meta=None):
+                    shap_cache=None, meta=None, conformal_q=None):
         self.trained_models = {n: r['model'] for n, r in results.items()}
         self.scaler    = scaler
         self.feat_cols = feat_cols
         self.ohe       = ohe
+        self.conformal_q = conformal_q or {}
         # Reset model selection: all newly loaded algorithms enabled
         self._model_selection = {n: True for n in self.trained_models}
+
+        # ── Extract training data ranges from the fitted MinMaxScaler ──────
+        # scaler.data_min_ / data_max_ hold the per-feature min/max observed
+        # during training fit, in original (unscaled) physical units.
+        self._train_ranges = {}
+        _COL_TO_KEY = {
+            'a/d':       'ad',
+            'd(mm)':     'd',
+            'b(mm)':     'b',
+            "f`c(Mpa)":  'fc',
+            'ρf(%)':     'rho',
+            'Ef(GPa)':   'ef',
+        }
+        _KEY_LABELS = {
+            'ad':  ('a/d',  ''),
+            'd':   ('d',    'mm'),
+            'b':   ('b',    'mm'),
+            'fc':  ("f'c",  'MPa'),
+            'rho': ('ρf',   '%'),
+            'ef':  ('Ef',   'GPa'),
+        }
+        if scaler is not None and feat_cols is not None:
+            try:
+                num_cols = [c for c in feat_cols if not c.startswith('FRP=')]
+                for idx, col in enumerate(num_cols):
+                    key = _COL_TO_KEY.get(col)
+                    if key and idx < len(scaler.data_min_):
+                        self._train_ranges[key] = (
+                            float(scaler.data_min_[idx]),
+                            float(scaler.data_max_[idx]))
+                # Update "?" button tooltips with real training ranges
+                for key, (lo, hi) in self._train_ranges.items():
+                    btn = self._range_btns.get(key)
+                    if btn is None:
+                        continue
+                    name, unit = _KEY_LABELS.get(key, (key, ''))
+                    u = f' {unit}' if unit else ''
+                    btn.setToolTip(
+                        f'Training range:  {lo:.4g} – {hi:.4g}{u}\n'
+                        f'Inputs outside this range may reduce prediction\n'
+                        f'reliability (extrapolation). Click for details.')
+                    btn.setProperty('rangeLoaded', True)
+                    btn.setStyleSheet(
+                        f'QPushButton{{'
+                        f'  background:{C_ACCENT_BG};'
+                        f'  color:{C_ACCENT};'
+                        f'  border:1px solid {C_ACCENT_LT};'
+                        f'  border-radius:11px;'
+                        f'  font-size:11px;font-weight:bold;'
+                        f'  padding:0px;'
+                        f'}}'
+                        f'QPushButton:hover{{'
+                        f'  background:{C_ACCENT};color:#FFFFFF;'
+                        f'  border-color:{C_ACCENT};'
+                        f'}}'
+                    )
+            except Exception:
+                pass  # scaler may not have data_min_ if not fitted
 
         # Populate algo combo-box
         self._algo_combo.blockSignals(True)
@@ -278,6 +348,97 @@ class PredictTab(QWidget):
 
         # Propagate shap_cache / interp to MainWindow via signal if needed
         self._shap_cache = shap_cache
+
+    # ── Range-hint helpers ────────────────────────────────────────────────
+
+    def _make_range_btn(self, key: str):
+        """
+        Create a small circular "?" button that shows the training data range
+        for the feature identified by *key* when clicked.
+
+        The button is initially disabled (no tooltip) until a model bundle is
+        loaded; ``load_models()`` enables it and fills in the real range.
+        """
+        btn = QPushButton('?')
+        btn.setFixedSize(22, 22)
+        btn.setToolTip('Hover after loading a bundle to see the training data range.\nClick for details.')
+        # NOTE: keep the button always enabled — disabled widgets do not
+        # receive mouse-enter events in Qt, so the tooltip would never fire.
+        # Visual "not-yet-loaded" state is communicated via the grey style below;
+        # load_models() swaps it to the blue active style once ranges are known.
+        btn.setProperty('rangeLoaded', False)
+        btn.setStyleSheet(
+            f'QPushButton{{'
+            f'  background:#F0F0F0;'
+            f'  color:#AAAAAA;'
+            f'  border:1px solid #CCCCCC;'
+            f'  border-radius:11px;'
+            f'  font-size:11px;font-weight:bold;'
+            f'  padding:0px;'
+            f'}}'
+            f'QPushButton:hover{{'
+            f'  background:#E0E0E0;color:#888888;'
+            f'  border-color:#BBBBBB;'
+            f'}}'
+        )
+        btn.clicked.connect(lambda _checked, k=key: self._show_range_popup(k))
+        return btn
+
+    def _show_range_popup(self, key: str):
+        """
+        Show a small dialog with the training-data min/max for *key*, along
+        with the current spinbox value highlighted if it is out of range.
+        """
+        _KEY_META = {
+            'ad':  ('a/d (shear span ratio)',         '—',    'Dimensionless'),
+            'd':   ('d (effective depth)',             'mm',   'Geometry'),
+            'b':   ('b (beam width)',                  'mm',   'Geometry'),
+            'fc':  ("f'c (concrete compressive str.)", 'MPa',  'Material'),
+            'rho': ('ρf (FRP reinforcement ratio)',    '%',    'Reinforcement'),
+            'ef':  ('Ef (FRP elastic modulus)',        'GPa',  'Reinforcement'),
+        }
+        if key not in self._train_ranges:
+            QMessageBox.information(
+                self, 'Training Range',
+                'No model bundle loaded.\n\n'
+                'Load a .frpmdl bundle first to see the\n'
+                'training data range for each parameter.')
+            return
+
+        lo, hi      = self._train_ranges[key]
+        label, unit, category = _KEY_META.get(key, (key, '', ''))
+        u           = f' {unit}' if unit and unit != '—' else ''
+
+        # Current spinbox value (if available)
+        spin  = self.inputs.get(key)
+        cur   = spin.value() if spin is not None else None
+        cur_line = ''
+        warn_line = ''
+        if cur is not None:
+            cur_line  = f'Current input:  {cur:.4g}{u}\n'
+            if cur < lo:
+                warn_line = f'\n⚠  Current value is BELOW training minimum.'
+            elif cur > hi:
+                warn_line = f'\n⚠  Current value is ABOVE training maximum.'
+            else:
+                warn_line = f'\n✓  Current value is within training range.'
+
+        msg = (
+            f'Parameter:   {label}\n'
+            f'Category:    {category}\n'
+            f'Unit:        {unit}\n\n'
+            f'Training range (from MinMaxScaler):\n'
+            f'  Min:  {lo:.4g}{u}\n'
+            f'  Max:  {hi:.4g}{u}\n\n'
+            f'{cur_line}'
+            f'{warn_line}\n\n'
+            f'Tree-based models cannot extrapolate beyond the\n'
+            f'training range and will repeat boundary predictions\n'
+            f'for out-of-range inputs.'
+        )
+        QMessageBox.information(self, f'Training Range — {label}', msg)
+
+    # ─────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -348,14 +509,33 @@ class PredictTab(QWidget):
             w    = _make_spin(cls, mn, mx, dv, dec, step)
             cell = _spin_field(lbl, w, unit)
             self.inputs[key] = w
-            gv.addWidget(cell, ri, 0)
+
+            # Wrap the input cell and a circular "?" range-hint button
+            wrap_w = QWidget()
+            wh = QHBoxLayout(wrap_w)
+            wh.setContentsMargins(0, 0, 0, 0)
+            wh.setSpacing(4)
+            wh.addWidget(cell, 1)
+            hbtn = self._make_range_btn(key)
+            self._range_btns[key] = hbtn
+            wh.addWidget(hbtn)
+            gv.addWidget(wrap_w, ri, 0)
 
         for ri, (lbl, key, cls, mn, mx, dv, dec, step, unit) \
                 in enumerate(PARAMS_RIGHT):
             w    = _make_spin(cls, mn, mx, dv, dec, step)
             cell = _spin_field(lbl, w, unit)
             self.inputs[key] = w
-            gv.addWidget(cell, ri, 1)
+
+            wrap_w = QWidget()
+            wh = QHBoxLayout(wrap_w)
+            wh.setContentsMargins(0, 0, 0, 0)
+            wh.setSpacing(4)
+            wh.addWidget(cell, 1)
+            hbtn = self._make_range_btn(key)
+            self._range_btns[key] = hbtn
+            wh.addWidget(hbtn)
+            gv.addWidget(wrap_w, ri, 1)
 
         frp_cell = QWidget()
         frp_vl   = QVBoxLayout(frp_cell)
@@ -454,11 +634,13 @@ class PredictTab(QWidget):
             f'font-size:11px;color:{C_TEXT2};'
             f'padding:2px 8px 4px 8px;')
         self._ci_label.setToolTip(
-            'Base-learner spread: the 2.5th and 97.5th percentiles of '
-            'individual base-estimator predictions\n'
-            '(Random Forest, Extra Trees, AdaBoost only).\n'
-            'Note: this is not a statistically calibrated prediction interval;\n'
-            'it reflects the dispersion across ensemble members.')
+            '95 % split conformal prediction interval (Vovk et al. 2005).\n'
+            'Interval = [ ŷ − q̂,  ŷ + q̂ ], where q̂ is the 95th percentile\n'
+            'of absolute residuals |y_i − ŷ_i| on the held-out test set.\n'
+            'Finite-sample marginal coverage guarantee: P(y ∈ C(x)) ≥ 0.95,\n'
+            'without any distributional assumption on the residuals.\n'
+            'Valid for all 8 ML algorithms.\n'
+            'Ref: Angelopoulos & Bates, ICML Tutorial, 2023.')
         rv.addWidget(self._ci_label)
 
         chart_hdr = QLabel('Predicted shear capacity by method')
@@ -744,6 +926,7 @@ class PredictTab(QWidget):
         ad  = self.inputs['ad'].value()
         frp = self.frp_combo.currentText()[0]
 
+        # ── Physical validity (hard errors — always enforced) ──────────────
         errors = []
         if d <= 0:    errors.append('Effective depth d must be > 0')
         if b <= 0:    errors.append('Beam width b must be > 0')
@@ -751,14 +934,53 @@ class PredictTab(QWidget):
         if rho <= 0:  errors.append('Reinforcement ratio ρf must be > 0')
         if ef <= 0:   errors.append('FRP modulus Ef must be > 0')
         if ad <= 0:   errors.append('Shear span ratio a/d must be > 0')
-        if rho > 10:  errors.append('ρf > 10% is unusually high — please check')
-        if ef > 300:  errors.append('Ef > 300 GPa is unusually high — please check')
-        if fc > 200:  errors.append("f'c > 200 MPa is unusually high — please check")
         if errors:
-            QMessageBox.warning(self, 'Input Warning',
-                                '\n'.join(errors))
-            if any('must be' in e for e in errors):
+            QMessageBox.warning(self, 'Invalid Input', '\n'.join(errors))
+            return
+
+        # ── Dynamic extrapolation check against training data ranges ───────
+        # MinMaxScaler.data_min_ / data_max_ store the per-feature bounds
+        # observed during training fit (physical units, before scaling).
+        # Tree-based regressors cannot extrapolate; predictions for inputs
+        # outside the training range repeat boundary leaf values and may be
+        # systematically biased.  A dismissible warning is shown so users
+        # remain aware of this limitation without being blocked.
+        _KEY_VALS = [
+            ('ad',  'a/d',  ad,  ''),
+            ('d',   'd',    d,   'mm'),
+            ('b',   'b',    b,   'mm'),
+            ('fc',  "f'c",  fc,  'MPa'),
+            ('rho', 'ρf',   rho, '%'),
+            ('ef',  'Ef',   ef,  'GPa'),
+        ]
+        range_warnings = []
+        if self._train_ranges:
+            for key, label, val, unit in _KEY_VALS:
+                if key not in self._train_ranges:
+                    continue
+                lo, hi = self._train_ranges[key]
+                u = f' {unit}' if unit else ''
+                if val < lo:
+                    range_warnings.append(
+                        f'  {label} = {val:.4g}{u}  <  training min ({lo:.4g}{u})')
+                elif val > hi:
+                    range_warnings.append(
+                        f'  {label} = {val:.4g}{u}  >  training max ({hi:.4g}{u})')
+
+        if range_warnings:
+            msg = (
+                'The following inputs are outside the training data range.\n'
+                'Tree-based ML models do not extrapolate; predictions for\n'
+                'out-of-range inputs repeat boundary leaf values and may\n'
+                'be unreliable:\n\n'
+                + '\n'.join(range_warnings)
+                + '\n\nCode-based predictions remain unaffected.\n\nProceed anyway?')
+            reply = QMessageBox.question(
+                self, 'Extrapolation Warning', msg,
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
                 return
+
 
         data = []
         for code_label, func in CODE_FUNCS:
@@ -822,7 +1044,8 @@ class PredictTab(QWidget):
                 for name, model in models_to_run.items():
                     try:
                         pred_val = round(float(model.predict(vec)[0]), 2)
-                        lo, hi, sd = _compute_pi(model, vec)
+                        q = self.conformal_q.get(name)
+                        lo, hi = compute_conformal_pi(pred_val, q)
                         data.append((f'ML: {name}', pred_val, lo, hi, 'ML model'))
                     except Exception as e:
                         data.append((f'ML: {name}', f'Error: {e}', None, None, 'ML model'))
@@ -862,7 +1085,8 @@ class PredictTab(QWidget):
                     for mname, mobj in bdata['models'].items():
                         try:
                             pv = round(float(mobj.predict(_bvec)[0]), 2)
-                            lo2, hi2, _ = _compute_pi(mobj, _bvec)
+                            bq = (bdata.get('conformal_q') or {}).get(mname)
+                            lo2, hi2 = compute_conformal_pi(pv, bq)
                             tag = f'ML: {mname} ({bdata["label"]})'
                             data.append((tag, pv, lo2, hi2, 'ML model'))
                         except Exception as ex:
@@ -896,13 +1120,13 @@ class PredictTab(QWidget):
                 f'{short}: {best_v:.2f} kN')
             if best_lo is not None and best_hi is not None:
                 self._ci_label.setText(
-                    f'Base-learner spread (2.5–97.5th pct): '
+                    f'95 % conformal interval: '
                     f'[{best_lo:.2f}, {best_hi:.2f}] kN'
                     f'  — {short}')
             else:
                 self._ci_label.setText(
-                    'Estimator spread: not available for this model type '
-                    '(supported: Random Forest, Extra Trees, AdaBoost)')
+                    '95 % conformal interval: not available '
+                    '(bundle predates prediction storage; please retrain)')
         elif code_vals:
             self._result_box.setText(
                 f'GB 50608-2020: {code_vals[0][1]:.2f} kN')

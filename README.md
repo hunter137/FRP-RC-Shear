@@ -17,18 +17,6 @@ The software is aimed at structural engineers and researchers who work with FRP-
 
 ---
 
-## Demo Video
-
-<video src="https://raw.githubusercontent.com/hunter137/FRP-RC-Shear/main/docs/video.mp4" controls width="100%" style="max-width:900px">
-  Your browser does not support the video tag.
-  <a href="https://raw.githubusercontent.com/hunter137/FRP-RC-Shear/main/docs/video.mp4">Download the demo video</a>
-</video>
-
-> The video above walks through a complete workflow: loading an experimental database, training ML models with Bayesian optimisation, running single and batch predictions, and inspecting model interpretability via SHAP plots.
-> If the video does not play inline, [click here to download it](https://raw.githubusercontent.com/hunter137/FRP-RC-Shear/main/docs/video.mp4).
-
----
-
 ## Screenshots
 
 **Prediction Tab** — enter beam parameters, load a trained model bundle, and
@@ -58,6 +46,9 @@ lock/free toggles and user-defined search ranges for each optimisation strategy.
 - Five design codes side-by-side: GB 50608-2020, ACI 440.1R-15, CSA S806-12, BISE (1999), JSCE (1997)
 - Eight ensemble ML algorithms: GBDT, XGBoost, LightGBM, CatBoost, Random Forest, Extra Trees, AdaBoost, KNN
 - Three hyperparameter optimisation strategies: Bayesian search (Optuna TPE), TLBO, and NSGA-II multi-objective
+- 95 % split conformal prediction intervals (Vovk et al., 2005) attached to every ML prediction, with a distribution-free finite-sample marginal coverage guarantee
+- Applicability-domain check: per-input training-range tooltips warn when a query falls outside the data envelope tree-based models can support
+- Non-negative output constraint applied to both design-code formulas and ML predictions (shear capacity is physically ≥ 0)
 - Model interpretability via SHAP beeswarm plots, Gini feature importance, and response surface analysis
 - Batch prediction over entire CSV/Excel databases with one-click export
 - Portable `.frpmdl` model bundles that carry the fitted model, scaler, encoder, and metadata in one file
@@ -108,8 +99,9 @@ pip install catboost
 1. Open the **Prediction** tab.
 2. Enter beam parameters (a/d, d, b, f′c, ρf, Ef, FRP type).
 3. Load a pre-trained model bundle (`.frpmdl`) or train your own in the Training tab.
-4. Click **Predict** to obtain results from all design codes and the loaded ML model simultaneously.
-5. Click **Export CSV** to save results.
+4. Click **Predict** to obtain results from all design codes and the loaded ML model simultaneously. A 95 % conformal prediction interval is shown below the point estimate.
+5. Click the small **?** button beside any input to view that parameter's training-data range; values outside the range are flagged because tree-based models do not extrapolate.
+6. Click **Export CSV** to save results.
 
 ### Model Training
 
@@ -206,7 +198,8 @@ FRP-RC-Shear/
 ├── CHANGELOG.md             # Version history
 ├── data/
 │   └── testdata.xls         # Example experimental database (728 specimens)
-├── models/                  # Pre-trained model bundles (.frpmdl)
+├── models/
+│   └── README.md            # How to obtain pre-trained model bundles
 ├── docs/
 │   └── screenshots/         # Application screenshots
 ├── tests/
@@ -215,13 +208,14 @@ FRP-RC-Shear/
 ├── tools/
 │   ├── diagnose_crash.py    # Crash diagnostics tool (run instead of main.py)
 │   └── README.md            # Usage instructions for tools
-└── tabs/
+└── tabs/                    # GUI tab modules and supporting dialogs/threads
     ├── data_tab.py
     ├── train_tab.py
     ├── eval_tab.py
     ├── code_tab.py
     ├── predict_tab.py
-    └── interp_tab.py
+    ├── interp_tab.py
+    └── …                    # dialogs, helpers, worker threads, hyperparameter editor
 ```
 
 ---
@@ -246,6 +240,30 @@ of what the tool captures.
 ```bash
 python -m pytest tests/ -v
 ```
+
+---
+
+## Scope and Limitations
+
+FRP-ShearPred targets a specific structural configuration; users should be aware of the following before applying it in practice:
+
+- **Intended configuration:** rectangular cross-section concrete beams, longitudinal FRP reinforcement only, no transverse reinforcement (stirrups), monotonic loading.
+- **Training-data ranges** of the bundled 728-specimen dataset (from the fitted MinMaxScaler):
+
+  | Parameter | Min | Max | Unit |
+  |---|---|---|---|
+  | a/d | 0.55 | 16.22 | — |
+  | d | 73 | 1111 | mm |
+  | b | 89 | 1000 | mm |
+  | f′c | 20 | 93 | MPa |
+  | ρf | 0.09 | 3.98 | % |
+  | Ef | 29 | 192 | GPa |
+  | FRP type | CFRP, GFRP, BFRP, AFRP | | |
+
+  The Prediction tab flags inputs that fall outside these ranges. Tree-based ensemble models cannot extrapolate and will repeat boundary predictions for out-of-range queries.
+
+- **Uncertainty estimates:** the 95 % conformal interval is a statistical predictive interval with marginal coverage; it is not an engineering safety factor and is not a substitute for code-prescribed material/resistance factors.
+- **Recommended use:** the ML predictions are intended as a complement to design-code formulas — useful for parameter screening, sensitivity studies, and educational purposes. Safety-critical design decisions should follow the relevant code provisions.
 
 ---
 

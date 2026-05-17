@@ -11,7 +11,7 @@ from sklearn.ensemble import (
     ExtraTreesRegressor, AdaBoostRegressor,
 )
 from sklearn.neighbors import KNeighborsRegressor
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_score, StratifiedKFold, KFold
 from config import HAS_XGB, HAS_LGB, HAS_CAT, HAS_OPTUNA, HAS_PYMOO
 from metrics import calc_metrics
 
@@ -46,6 +46,80 @@ if HAS_PYMOO:
         except Exception:
             def _get_termination(name, n):
                 return n   # pymoo sometimes accepts plain int for n_gen
+
+# ---------------------------------------------------------------------------
+# Binning-based stratified cross-validation for regression
+# ---------------------------------------------------------------------------
+class _StratifiedRegCV:
+    """
+    Stratified k-fold splitter for regression tasks.
+
+    Stratification is achieved by discretising the continuous target variable
+    into quantile bins, so that each fold spans the full range of shear
+    capacity values.  This is especially beneficial for the typically small
+    FRP-RC databases, where a purely random split may leave extreme capacity
+    values concentrated in a single fold.
+
+    Implementation follows the binning strategy described in:
+        Kohavi, R. (1995). A study of cross-validation and bootstrap for
+        accuracy estimation and model selection. IJCAI-95, 1137–1143.
+    """
+    def __init__(self, n_splits: int, bins: np.ndarray, seed: int = 42):
+        self.n_splits = n_splits
+        self._bins    = np.asarray(bins, dtype=int)
+        self._skf     = StratifiedKFold(
+            n_splits=n_splits, shuffle=True, random_state=seed)
+
+    def split(self, X, y=None, groups=None):
+        return self._skf.split(X, self._bins)
+
+    def get_n_splits(self, X=None, y=None, groups=None):
+        return self.n_splits
+
+
+def _make_stratified_cv(y: np.ndarray, n_splits: int, seed: int = 42):
+    """
+    Build a CV splitter with binning-based stratification for regression.
+
+    The continuous shear-capacity target is discretised into *n_splits*
+    quantile bins via ``pd.qcut``.  When duplicate bin edges are present
+    (common with small or skewed datasets), the bin count is reduced
+    iteratively until all edges are unique.  If a valid binning cannot be
+    constructed, the function falls back to a shuffled ``KFold``.
+
+    Parameters
+    ----------
+    y        : array-like, continuous regression target
+    n_splits : int, number of CV folds
+    seed     : int, random seed for fold shuffling
+
+    Returns
+    -------
+    CV splitter compatible with ``cross_val_score``
+    """
+    import pandas as _pd
+    y_arr  = np.asarray(y, dtype=float)
+    n_bins = n_splits
+    bins   = None
+    while n_bins >= 2:
+        try:
+            b = _pd.qcut(y_arr, q=n_bins, labels=False, duplicates='drop')
+            b_arr = np.asarray(b, dtype=float)
+            if not np.any(np.isnan(b_arr)) and len(np.unique(b_arr)) >= 2:
+                bins = b_arr.astype(int)
+                break
+        except Exception:
+            pass
+        n_bins -= 1
+
+    if bins is None or n_bins < 2:
+        # Fallback: plain KFold (target distribution not stratified)
+        return KFold(n_splits=n_splits, shuffle=True, random_state=seed)
+
+    return _StratifiedRegCV(n_splits=n_splits, bins=bins, seed=seed)
+
+
+# ---------------------------------------------------------------------------
 
 NSGA2_OBJECTIVES = {
     'R2':         ('R²  (coefficient of determination)',   'maximize'),
@@ -239,15 +313,17 @@ def _factory_for(name, seed, use_gpu=False):
         return lambda **p: KNeighborsRegressor(n_jobs=-1, **p)
     raise ValueError(f'Unknown algorithm: {name}')
 
-def _score_vec(vec, space, factory, X, y, cv, stop_flag=None, cv_n_jobs=-1):
+def _score_vec(vec, space, factory, X, y, cv, stop_flag=None, cv_n_jobs=-1, seed=42):
     if stop_flag is not None and stop_flag():
         return -1.0
     params = {n: int(round(v)) if is_int else float(v)
               for (n, lo, hi, is_int), v in zip(space, vec)}
     try:
+        cv_splitter = (_make_stratified_cv(y, cv, seed)
+                       if isinstance(cv, int) else cv)
         val = float(cross_val_score(
             factory(**params), X, y,
-            cv=cv, scoring='r2', n_jobs=cv_n_jobs).mean())
+            cv=cv_splitter, scoring='r2', n_jobs=cv_n_jobs).mean())
         return val if np.isfinite(val) else -1.0
     except Exception:
         return -1.0
@@ -270,7 +346,7 @@ def tlbo_optimize(factory, space, X, y, cv=5,
         if stop_flag and stop_flag():
             return -1.0
         s = _score_vec(vec, space, factory, X, y, cv, stop_flag,
-                       cv_n_jobs=cv_n_jobs)
+                       cv_n_jobs=cv_n_jobs, seed=seed)
         eval_ct[0] += 1
         if s > best_running[0]:
             best_running[0] = s
@@ -376,11 +452,13 @@ def _optuna_optimize(factory, space, X, y, cv=5,
                          else trial.suggest_float(
                              n, lo, hi, log=(lo > 0 and hi / lo > 10)))
         try:
+            cv_splitter = (_make_stratified_cv(y, cv, seed)
+                           if isinstance(cv, int) else cv)
             import joblib as _jlib
             with _jlib.parallel_backend('loky', n_jobs=cv_n_jobs):
                 val = float(cross_val_score(
                     factory(**params), X, y,
-                    cv=cv, scoring='r2', n_jobs=cv_n_jobs).mean())
+                    cv=cv_splitter, scoring='r2', n_jobs=cv_n_jobs).mean())
         except Exception:
             val = -1.0
 
@@ -466,9 +544,11 @@ def nsga2_optimize(factory, space, X_tr, X_te, y_tr, y_te,
             # the cross-validated score so the CV setting is honoured.
             if 'R2' in objectives and cv > 1:
                 try:
+                    cv_splitter = _make_stratified_cv(
+                        y_tr, min(cv, len(y_tr)), seed)
                     cv_r2 = float(cross_val_score(
                         factory(**params), X_tr, y_tr,
-                        cv=min(cv, len(y_tr)), scoring='r2', n_jobs=1).mean())
+                        cv=cv_splitter, scoring='r2', n_jobs=1).mean())
                     met = dict(met)
                     met['R2'] = cv_r2
                 except Exception:

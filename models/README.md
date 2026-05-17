@@ -8,7 +8,7 @@ Pre-trained models are distributed via the GitHub Releases page to avoid
 storing large binary files in the repository.
 
 1. Go to the [Releases page](https://github.com/hunter137/FRP-RC-Shear/releases).
-2. Download the asset `pretrained_models_v2.0.0.zip`.
+2. Download the asset `pretrained_models_v1.0.0.zip`.
 3. Extract the `.frpmdl` files into this directory.
 
 Alternatively, you can train your own models using the **Model Retraining** tab

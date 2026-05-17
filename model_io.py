@@ -150,10 +150,32 @@ class ModelIO:
                 'cv_mean':    met.get('cv_mean', float('nan')),
                 'cv_std':     met.get('cv_std',  float('nan')),
             }
+
+        # ── Split conformal calibration (Vovk et al. 2005) ────────────────
+        # For each model, use the held-out test set as the calibration set.
+        # Nonconformity score: alpha_i = |y_i - yhat_i|  (absolute residual).
+        # Conformal quantile at level (1-delta): q = Quantile(alpha, ceil((n+1)*(1-d))/n).
+        # Finite-sample guarantee: P(y_new in [yhat-q, yhat+q]) >= 1-delta = 0.95,
+        # provided the calibration points are exchangeable with future queries.
+        # Reference: Angelopoulos & Bates, "A Gentle Introduction to Conformal Prediction
+        #            and Distribution-Free Uncertainty Quantification", ICML Tutorial 2023.
+        _CONFORMAL_LEVEL = 0.95
+        conformal_q = {}
+        n_cal = len(y_te)
+        for name, res in results.items():
+            te_pred = res['te_pred']
+            if n_cal > 0 and len(te_pred) == n_cal:
+                residuals = np.abs(y_te - te_pred)
+                # Exact finite-sample level (accounts for +1 future point)
+                level = min(float(np.ceil((n_cal + 1) * _CONFORMAL_LEVEL)) / n_cal, 1.0)
+                conformal_q[name] = round(float(np.quantile(residuals, level)), 3)
+            else:
+                conformal_q[name] = None   # bundle predates prediction storage
+
         return (results,
                 bundle['scaler'],
                 bundle['feat_cols'],
                 bundle.get('ohe'),
                 bundle.get('shap_cache'),
                 bundle.get('meta', {}),
-                y_tr, y_te)
+                y_tr, y_te, conformal_q)

@@ -12,6 +12,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   NSGA-II multi-objective
 - Five design code predictions: GB 50608-2020, ACI 440.1R-15, CSA S806-12,
   BISE (1999), JSCE (1997)
+- 95 % split conformal prediction intervals (Vovk et al., 2005) attached to
+  every ML prediction, with a distribution-free finite-sample marginal
+  coverage guarantee; calibration uses held-out test-set residuals
+- Applicability-domain check in the Prediction tab: per-input "?" buttons
+  display the training-data range (extracted from the fitted MinMaxScaler)
+  and flag out-of-range queries
+- Non-negative output constraint on all design-code formulas and ML
+  predictions (clip at 0 kN), reflecting the physical lower bound of shear
+  capacity
 - SHAP analysis dialog with beeswarm, bar, and waterfall plots
 - Partial dependence plot (PDP) panel in the Interpretability tab
 - Portable `.frpmdl` model bundle format (compressed joblib archive)

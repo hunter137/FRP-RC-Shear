@@ -17,45 +17,62 @@ from PyQt5.QtGui import QPainter, QPixmap, QColor, QFont, QPen, QBrush
 # config
 from config import C_BORDER, C_TEXT2
 
+def compute_conformal_pi(pred_val: float, conformal_q):
+    """
+    Split conformal prediction interval at the 95 % marginal coverage level.
+
+    Theory
+    ------
+    Given a calibration set {(x_i, y_i)}_{i=1}^{n} held out from training,
+    define the nonconformity score  alpha_i = |y_i - hat{y}_i|.
+    The conformal quantile is
+
+        q_hat = Quantile( {alpha_i}, ceil((n+1)*(1-delta)) / n )
+
+    where delta = 0.05.  The resulting symmetric interval
+
+        C(x) = [ hat{y} - q_hat,  hat{y} + q_hat ]
+
+    satisfies the finite-sample marginal coverage guarantee
+
+        P( y_new in C(x_new) ) >= 1 - delta = 0.95
+
+    without any distributional assumption on the residuals, provided only
+    that the calibration points are exchangeable with future test points
+    (Vovk et al., "Algorithmic Learning in a Random World", 2005;
+     Angelopoulos & Bates, ICML Tutorial, 2023).
+
+    q_hat is pre-computed from the held-out test set in ModelIO.load()
+    and stored in the conformal_q dict keyed by algorithm name.
+
+    Parameters
+    ----------
+    pred_val   : float  — point prediction hat{y} in kN
+    conformal_q: float | None — pre-computed q_hat in kN, or None if the
+                  bundle predates prediction storage (legacy bundles).
+
+    Returns
+    -------
+    (lo, hi) : (float, float) or (None, None)
+    """
+    if conformal_q is None or not np.isfinite(conformal_q) or conformal_q <= 0:
+        return None, None
+    # Shear capacity is a non-negative physical quantity; clip lower bound at 0.
+    lo = max(round(pred_val - conformal_q, 2), 0.0)
+    hi = round(pred_val + conformal_q, 2)
+    return lo, hi
+
+
 def _compute_pi(model, vec, confidence=0.95):
     """
-    Estimate the base-learner prediction spread for supported ensemble models.
+    Deprecated — retained for backward compatibility only.
+    Use compute_conformal_pi() for statistically rigorous intervals.
 
-    Method: collect predictions from each individual base estimator, then
-    take the (alpha/2) and (1-alpha/2) percentiles as the spread bounds.
-
-    Note: this is *not* a statistically calibrated prediction interval (PI).
-    It reflects the dispersion of predictions across the ensemble's base
-    learners, which approximates (but does not equal) a formal PI.
-
-    Supported: RandomForestRegressor, ExtraTreesRegressor, AdaBoostRegressor.
-    Returns (lo, hi, std) as floats, or (None, None, None) if unsupported.
+    This function returned the 2.5–97.5th percentile spread of individual
+    base-estimator predictions, which reflects inter-tree disagreement
+    rather than calibrated predictive uncertainty and has no formal
+    coverage guarantee.  It is no longer called by the prediction workflow.
     """
-    alpha = (1.0 - confidence) / 2.0
-    cls   = type(model).__name__
-
-    # Random Forest and Extra Trees — individual tree predictions
-    if cls in ('RandomForestRegressor', 'ExtraTreesRegressor'):
-        try:
-            preds = np.array([t.predict(vec)[0] for t in model.estimators_])
-            return (float(np.percentile(preds, alpha * 100)),
-                    float(np.percentile(preds, (1.0 - alpha) * 100)),
-                    float(preds.std()))
-        except Exception:
-            return None, None, None
-
-    # AdaBoost — individual base estimator predictions
-    if cls == 'AdaBoostRegressor':
-        try:
-            preds = np.array([est.predict(vec)[0] for est in model.estimators_])
-            return (float(np.percentile(preds, alpha * 100)),
-                    float(np.percentile(preds, (1.0 - alpha) * 100)),
-                    float(preds.std()))
-        except Exception:
-            return None, None, None
-
-    # Other models (GBDT, XGBoost, LightGBM, SVR, KNN, MLP):
-    # individual-tree PI not accessible without retraining — return None
     return None, None, None
 
 #  BEAM SCHEMATIC WIDGET  —  Loads an external image file

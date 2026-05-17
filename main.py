@@ -8,6 +8,10 @@ A PyQt5 desktop application for predicting the shear capacity of
 FRP-reinforced concrete beams without stirrups, combining five
 international design codes with eight ensemble ML algorithms.
 """
+# Fix Windows COM threading model for PyQt5 + worker threads.
+import sys
+sys.coinit_flags = 2          # COINIT_APARTMENTTHREADED – must precede PyQt5 import
+
 # Allow multiple Intel OpenMP copies to coexist (harmless when only one is present).
 import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
@@ -15,8 +19,11 @@ os.environ['KMP_WARNINGS']         = 'FALSE'
 
 
 # Write a native stack trace to stderr on C-level crashes.
+# Disabled on Windows: faulthandler surfaces benign COM exceptions
+# (0x8001010d) from PyQt5 worker threads that are not actual crashes.
 import faulthandler, sys as _sys
-faulthandler.enable(file=_sys.stderr, all_threads=True)
+if _sys.platform != 'win32':
+    faulthandler.enable(file=_sys.stderr, all_threads=True)
 
 
 import qt_compat
