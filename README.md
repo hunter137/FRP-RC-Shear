@@ -6,6 +6,7 @@
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](https://www.python.org/)
 [![Tests](https://github.com/hunter137/FRP-RC-Shear/actions/workflows/tests.yml/badge.svg)](https://github.com/hunter137/FRP-RC-Shear/actions/workflows/tests.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19503522.svg)](https://doi.org/10.5281/zenodo.19503522)
+[![SoftwareX](https://img.shields.io/badge/SoftwareX-10.1016%2Fj.softx.2026.102811-orange)](https://doi.org/10.1016/j.softx.2026.102811)
 
 ---
 
@@ -275,7 +276,7 @@ This work was supported by the National Key R&D Program of China (Grant Nos. 202
 
 ## Citation
 
-If you use FRP-ShearPred in your research, please cite the following SoftwareX article (forthcoming):
+If you use FRP-ShearPred in your research, please cite the following SoftwareX article:
 
 ```bibtex
 @article{liang2026frpshearpred,
@@ -285,6 +286,20 @@ If you use FRP-ShearPred in your research, please cite the following SoftwareX a
              prediction of stirrup-free {FRP}-reinforced concrete beams
              integrating design codes and ensemble machine learning},
   journal = {SoftwareX},
+  volume  = {35},
+  year    = {2026},
+  pages   = {102811},
+  doi     = {10.1016/j.softx.2026.102811},
+}
+```
+
+If you use the software itself (the released code/binaries), you may additionally cite the Zenodo archive:
+
+```bibtex
+@software{liang2026frpshearpred_software,
+  author  = {Liang, Deyu and Cao, Jingwen and Liu, Jinlong and
+             Cui, Yujun and Zhang, Yuzhuo and Xue, Xingwei and Xu, Lei},
+  title   = {{FRP-ShearPred}},
   year    = {2026},
   doi     = {10.5281/zenodo.19503522},
 }
