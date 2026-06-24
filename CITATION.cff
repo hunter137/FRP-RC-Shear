@@ -65,5 +65,7 @@ preferred-citation:
       given-names: Lei
   title: "FRP-ShearPred: An open-source platform for shear capacity prediction of stirrup-free FRP-reinforced concrete beams integrating design codes and ensemble machine learning"
   journal: "SoftwareX"
+  volume: 35
   year: 2026
-  doi: "10.5281/zenodo.19503522"
+  pages: "102811"
+  doi: "10.1016/j.softx.2026.102811"
