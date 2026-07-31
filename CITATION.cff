@@ -1,33 +1,71 @@
-"""Public API for the LLX2026 concrete drying-shrinkage predictor."""
-
-from .batch import BatchFormatError, predict_csv, predict_dataframe
-from .model import (
-    DEFAULT_PARAMETERS,
-    ModelParameters,
-    Prediction,
-    ShrinkageInputs,
-    aggregate_volume_fraction,
-    evaluate,
-    predict,
-    prediction_interval,
-    predict_with_intervals,
-)
-from .plotting import development_figure
-
-__version__ = "1.0.0"
-
-__all__ = [
-    "BatchFormatError",
-    "DEFAULT_PARAMETERS",
-    "ModelParameters",
-    "Prediction",
-    "ShrinkageInputs",
-    "aggregate_volume_fraction",
-    "development_figure",
-    "evaluate",
-    "predict",
-    "predict_csv",
-    "predict_dataframe",
-    "prediction_interval",
-    "predict_with_intervals",
-]
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+title: "FRP-ShearPred: An open-source platform for shear capacity prediction of stirrup-free FRP-reinforced concrete beams integrating design codes and ensemble machine learning"
+version: "1.0.0"
+date-released: "2026-04-11"
+license: MIT
+repository-code: "https://github.com/hunter137/FRP-RC-Shear"
+doi: "10.5281/zenodo.19503522"
+authors:
+  - family-names: Liang
+    given-names: Deyu
+    affiliation: "School of Transportation and Surveying Engineering, Shenyang Jianzhu University, Shenyang, China"
+  - family-names: Cao
+    given-names: Jingwen
+    affiliation: "School of Transportation and Surveying Engineering, Shenyang Jianzhu University, Shenyang, China"
+  - family-names: Liu
+    given-names: Jinlong
+    affiliation: "School of Civil Engineering, Southeast University, Nanjing, China"
+    email: "liujinlong@seu.edu.cn"
+  - family-names: Cui
+    given-names: Yujun
+    affiliation: "State Key Laboratory of Bridge Safety and Resilience, Beijing University of Technology, Beijing, China"
+  - family-names: Zhang
+    given-names: Yuzhuo
+    affiliation: "School of Management, Shenyang Jianzhu University, Shenyang, China"
+  - family-names: Xue
+    given-names: Xingwei
+    affiliation: "School of Transportation and Surveying Engineering, Shenyang Jianzhu University, Shenyang, China"
+  - family-names: Xu
+    given-names: Lei
+    affiliation: "Laboratory of Construction Materials, Ecole Polytechnique Fédérale de Lausanne, 1015, Switzerland"
+    email: "lei.xu@epfl.ch"
+keywords:
+  - FRP-reinforced concrete
+  - shear strength prediction
+  - ensemble machine learning
+  - design codes
+  - structural engineering
+  - PyQt5
+abstract: >
+  FRP-ShearPred is a cross-platform desktop application for shear strength
+  prediction of fibre-reinforced polymer (FRP) reinforced concrete beams
+  without shear reinforcement. It integrates five international design codes
+  (GB 50608-2020, ACI 440.1R-15, CSA S806-12, BISE 1999, JSCE 1997) and eight
+  ensemble machine learning algorithms with multi-strategy hyperparameter
+  optimisation (Bayesian/Optuna, TLBO, NSGA-II). The platform provides
+  SHAP-based model interpretability, batch prediction, and portable model
+  bundles (.frpmdl format).
+preferred-citation:
+  type: article
+  authors:
+    - family-names: Liang
+      given-names: Deyu
+    - family-names: Cao
+      given-names: Jingwen
+    - family-names: Liu
+      given-names: Jinlong
+    - family-names: Cui
+      given-names: Yujun
+    - family-names: Zhang
+      given-names: Yuzhuo
+    - family-names: Xue
+      given-names: Xingwei
+    - family-names: Xu
+      given-names: Lei
+  title: "FRP-ShearPred: An open-source platform for shear capacity prediction of stirrup-free FRP-reinforced concrete beams integrating design codes and ensemble machine learning"
+  journal: "SoftwareX"
+  volume: 35
+  year: 2026
+  pages: "102811"
+  doi: "10.1016/j.softx.2026.102811"
