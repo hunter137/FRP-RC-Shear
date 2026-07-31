@@ -1,0 +1,1014 @@
+"""
+Concrete Drying Shrinkage Prediction Software
+混凝土干燥收缩预测软件
+Based on the LLX2026 nine-parameter explicit model. Point predictions are
+reported with 90% and 95% empirical prediction intervals calibrated from
+experiment-grouped out-of-fold residuals.
+
+Version: 1
+"""
+
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog, simpledialog
+import numpy as np
+import pandas as pd
+from PIL import Image, ImageTk, ImageDraw, ImageFont, ImageGrab
+import io
+import os
+
+from .model import (
+    aggregate_volume_fraction,
+    predict as model_predict,
+    prediction_interval,
+)
+
+
+class ShrinkagePredictionGUI:
+    """混凝土干燥收缩预测软件主界面"""
+    
+    # LLX2026 model, 9-parameter median-normalized identifiable form.
+    # DE solution calibrated on the NU database using complete experimental-series grouping.
+    #   eps = A*(wc/0.5)^b2 * (1-h^b3)/(1-0.5^b3)
+    #          * [dt/(dt + tau*(VtoS/VS_MED)^b5)]^b6 * (1 + b7*exp(-dt/50))
+    #          * (1 - b8*ln(t0/7)) * ((1-Va)/(1-VA_MED))^b9
+    # The strength term of the code-lineage models was dropped (collinear with w/c and
+    # not identifiable); composition is carried by w/c and the aggregate volume fraction.
+    THETA = np.array([
+        1062.3529,  # theta1  reference-condition shrinkage magnitude
+        0.319716,   # theta2  water-to-cement exponent
+        1.500000,   # theta3  humidity exponent
+        61.51684,   # theta4  characteristic time
+        1.349781,   # theta5  volume-to-surface exponent
+        0.845264,   # theta6  time-development exponent
+        0.361052,   # theta7  early-age amplitude
+        0.115219,   # theta8  curing-age coefficient
+        0.389485,   # theta9  aggregate-restraint exponent
+    ])
+    VS_MED = 22.7273       # reference volume-to-surface ratio (mm)
+    VA_MED = 0.7015        # reference aggregate-volume proxy
+    RHO_AGG = 2650.0       # nominal aggregate particle density (kg/m3)
+
+    # Additive half-widths of the cross-fitted empirical prediction intervals, in
+    # microstrain. Values are the fold-weighted widths reported in Fig. 12 divided by two.
+    # The final band is retained separately because long-term coverage is lower and should
+    # not be concealed by interpolation with the densely represented ages.
+    PI_HALF_WIDTHS = [
+        (0.0, 7.0, 61.1152, 72.3735),
+        (7.0, 28.0, 88.2015, 112.9973),
+        (28.0, 180.0, 108.6639, 144.0709),
+        (180.0, 1000.0, 102.5550, 117.9668),
+        (1000.0, float("inf"), 89.8207, 109.9725),
+    ]
+    
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Concrete Drying Shrinkage Prediction (Developed by Deyu Liang, Jinlong Liu, and Lei Xu)")
+        self.root.geometry("950x680")
+        self.root.resizable(False, False)
+        
+        # 设置样式
+        self.setup_styles()
+        
+        # 创建主框架
+        self.create_main_frame()
+        
+    def setup_styles(self):
+        """设置界面样式"""
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        # 配置颜色
+        self.colors = {
+            'bg': '#F5F5F5',
+            'header': '#2C3E50',
+            'accent': '#3498DB',
+            'text': '#2C3E50',
+            'white': '#FFFFFF',
+            'border': '#BDC3C7',
+            'success': '#27AE60',
+            'warning': '#E74C3C'
+        }
+        
+        self.root.configure(bg=self.colors['bg'])
+        
+        # 配置样式
+        style.configure('Header.TLabel', 
+                       font=('Times New Roman', 18, 'bold italic'),
+                       foreground=self.colors['header'],
+                       background=self.colors['bg'])
+        
+        style.configure('SubHeader.TLabel',
+                       font=('Times New Roman', 12, 'bold'),
+                       foreground=self.colors['header'],
+                       background=self.colors['white'])
+        
+        style.configure('Param.TLabel',
+                       font=('Times New Roman', 11),
+                       foreground=self.colors['text'],
+                       background=self.colors['white'])
+        
+        style.configure('Unit.TLabel',
+                       font=('Times New Roman', 10),
+                       foreground='#7F8C8D',
+                       background=self.colors['white'])
+        
+        style.configure('Result.TLabel',
+                       font=('Times New Roman', 14, 'bold'),
+                       foreground=self.colors['success'],
+                       background=self.colors['white'])
+        
+        style.configure('TNotebook', background=self.colors['bg'])
+        style.configure('TNotebook.Tab', 
+                       font=('Times New Roman', 11),
+                       padding=[15, 8])
+        
+        style.configure('Predict.TButton',
+                       font=('Times New Roman', 12, 'bold'),
+                       padding=[30, 10])
+        
+        style.configure('TEntry', font=('Times New Roman', 11))
+        
+    def create_main_frame(self):
+        """创建主框架"""
+        # 标题
+        title_frame = tk.Frame(self.root, bg=self.colors['bg'])
+        title_frame.pack(fill='x', pady=(15, 10))
+        
+        # 截图按钮（放在右上角，小巧不显眼）
+        self.screenshot_btn = tk.Button(title_frame, text="📷",
+                                        font=('Segoe UI Emoji', 12),
+                                        bg=self.colors['bg'], fg='#95A5A6',
+                                        activebackground=self.colors['bg'],
+                                        activeforeground='#3498DB',
+                                        relief='flat', bd=0,
+                                        cursor='hand2',
+                                        command=self.take_screenshot)
+        self.screenshot_btn.place(relx=0.98, rely=0.5, anchor='e')
+        
+        title_label = ttk.Label(title_frame, 
+                               text="Concrete Drying Shrinkage Prediction",
+                               style='Header.TLabel')
+        title_label.pack()
+        
+        subtitle_label = tk.Label(title_frame,
+                                 text="LLX2026  |  explicit nine-parameter formulation  |  experiment-grouped prediction intervals",
+                                 font=('Times New Roman', 10, 'italic'),
+                                 fg='#7F8C8D', bg=self.colors['bg'])
+        subtitle_label.pack(pady=(5, 0))
+        
+        # 创建选项卡
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill='both', expand=True, padx=20, pady=10)
+        
+        # 主页选项卡
+        self.home_tab = tk.Frame(self.notebook, bg=self.colors['white'])
+        self.notebook.add(self.home_tab, text="  Home  ")
+        self.create_home_tab()
+        
+        # 单样本预测选项卡
+        self.predict_tab = tk.Frame(self.notebook, bg=self.colors['white'])
+        self.notebook.add(self.predict_tab, text="  Individual Prediction  ")
+        self.create_predict_tab()
+        
+        # 批量预测选项卡
+        self.batch_tab = tk.Frame(self.notebook, bg=self.colors['white'])
+        self.notebook.add(self.batch_tab, text="  Batch Prediction  ")
+        self.create_batch_tab()
+        
+    def _mathtext_photo(self, latex, fontsize=16, color='#1F4E79'):
+        """Render a LaTeX/mathtext string to a Tk PhotoImage via matplotlib (transparent, cropped)."""
+        import io
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        fig = Figure(figsize=(6, 0.7), dpi=200)
+        fig.patch.set_alpha(0.0)
+        FigureCanvasAgg(fig)
+        fig.text(0.01, 0.5, latex, fontsize=fontsize, color=color, va='center', ha='left')
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', pad_inches=0.02)
+        buf.seek(0)
+        img = Image.open(buf)
+        scale = 0.5
+        img = img.resize((max(1, int(img.width * scale)), max(1, int(img.height * scale))), Image.LANCZOS)
+        return ImageTk.PhotoImage(img)
+
+    def create_home_tab(self):
+        """创建主页选项卡 (内容可滚动)"""
+        # 可滚动容器: Canvas + Scrollbar; 所有内容放进 intro_frame
+        outer = tk.Frame(self.home_tab, bg=self.colors['white'])
+        outer.pack(fill='both', expand=True)
+        home_canvas = tk.Canvas(outer, bg=self.colors['white'], highlightthickness=0)
+        vbar = ttk.Scrollbar(outer, orient='vertical', command=home_canvas.yview)
+        home_canvas.configure(yscrollcommand=vbar.set)
+        vbar.pack(side='right', fill='y')
+        home_canvas.pack(side='left', fill='both', expand=True)
+
+        intro_frame = tk.Frame(home_canvas, bg=self.colors['white'])
+        _margin = 24
+        _win = home_canvas.create_window((_margin, 12), window=intro_frame, anchor='nw')
+        intro_frame.bind('<Configure>',
+                         lambda e: home_canvas.configure(scrollregion=home_canvas.bbox('all')))
+        home_canvas.bind('<Configure>',
+                         lambda e: home_canvas.itemconfig(_win, width=e.width - 2 * _margin))
+
+        def _home_wheel(event):
+            # 仅当指针在 Home 页内时滚动本页 (不影响其他选项卡的滚动)
+            w = event.widget
+            while w is not None:
+                if w == self.home_tab:
+                    home_canvas.yview_scroll(int(-event.delta / 120), 'units')
+                    return
+                w = getattr(w, 'master', None)
+        home_canvas.bind_all('<MouseWheel>', _home_wheel)
+        
+        # 标题
+        tk.Label(intro_frame, text="LLX2026 Drying Shrinkage Prediction Model",
+                font=('Times New Roman', 16, 'bold'),
+                fg=self.colors['header'], bg=self.colors['white']).pack(anchor='w', pady=(0, 15))
+        
+        # 模型公式
+        formula_frame = tk.LabelFrame(intro_frame, text=" Mathematical Formulation ",
+                                      font=('Times New Roman', 11, 'bold'),
+                                      fg=self.colors['header'], bg=self.colors['white'],
+                                      padx=20, pady=15)
+        formula_frame.pack(fill='x', pady=10)
+        
+        formulas = [
+            ("Shrinkage Magnitude:", r'$\widehat{\varepsilon}_{\mathrm{sh}} = \theta_1\,(w/c\,/\,0.5)^{\theta_2}\,\frac{1 - h^{\theta_3}}{1 - 0.5^{\theta_3}}\,\beta_t\,\beta_e\,\beta_{t_0}\,\beta_a$'),
+            ("Time Function:", r'$\beta_t = \left[\frac{\Delta t}{\Delta t + \theta_4\,(V/S\,/\,22.7273)^{\theta_5}}\right]^{\theta_6},\quad \beta_e=1+\theta_7 e^{-\Delta t/50}$'),
+            ("Curing Age Factor:", r'$\beta_{t_0} = 1 - \theta_8\,\ln(t_0/7)$'),
+            ("Aggregate Factor:", r'$\beta_a = \left[\frac{1 - V_a}{1 - 0.7015}\right]^{\theta_9}, \quad V_a = a/\rho_a,\quad \rho_a=2650\;\mathrm{kg\,m^{-3}}$'),
+        ]
+
+        self._formula_photos = []  # keep references so Tk does not garbage-collect the images
+        for label, latex in formulas:
+            row = tk.Frame(formula_frame, bg=self.colors['white'])
+            row.pack(fill='x', pady=5)
+            tk.Label(row, text=label, font=('Times New Roman', 10, 'bold'),
+                    fg=self.colors['text'], bg=self.colors['white'], width=18, anchor='e').pack(side='left')
+            try:
+                photo = self._mathtext_photo(latex)
+                self._formula_photos.append(photo)
+                tk.Label(row, image=photo, bg=self.colors['white']).pack(side='left', padx=10)
+            except Exception:
+                tk.Label(row, text=latex, font=('Times New Roman', 11, 'italic'),
+                        fg='#2980B9', bg=self.colors['white']).pack(side='left', padx=10)
+        
+        # 符号释义 (Nomenclature)
+        nomen_frame = tk.LabelFrame(intro_frame, text=" Nomenclature ",
+                                    font=('Times New Roman', 11, 'bold'),
+                                    fg=self.colors['header'], bg=self.colors['white'],
+                                    padx=20, pady=12)
+        nomen_frame.pack(fill='x', pady=10)
+        nomen = [
+            ("εsh", "drying shrinkage strain (με), the predicted quantity"),
+            ("θ₁ … θ₉", "calibrated model parameters (values listed below)"),
+            ("Δt = t − t₀", "drying duration, i.e. time since the start of drying (days)"),
+            ("t₀", "curing age at the start of drying (days)"),
+            ("h", "relative humidity expressed as a fraction ( = RH / 100 )"),
+            ("V/S", "volume-to-surface ratio of the specimen (mm)"),
+            ("w/c", "water-to-cement ratio ( - )"),
+            ("Va", "mass-derived aggregate-volume proxy ( = a / ρa )"),
+            ("a", "total aggregate content (kg/m³)"),
+            ("βt, βe, βt₀, βa", "time-development, early-age, curing-age and aggregate-volume factors"),
+        ]
+        for sym, meaning in nomen:
+            row = tk.Frame(nomen_frame, bg=self.colors['white'])
+            row.pack(fill='x', pady=1)
+            tk.Label(row, text=sym, font=('Times New Roman', 10, 'bold italic'),
+                     fg='#1F4E79', bg=self.colors['white'], width=15, anchor='e').pack(side='left')
+            tk.Label(row, text="   " + meaning, font=('Times New Roman', 10),
+                     fg=self.colors['text'], bg=self.colors['white'], anchor='w').pack(side='left')
+
+        # 参数表格
+        param_frame = tk.LabelFrame(intro_frame, text=" Optimized Parameters ",
+                                   font=('Times New Roman', 11, 'bold'),
+                                   fg=self.colors['header'], bg=self.colors['white'],
+                                   padx=20, pady=15)
+        param_frame.pack(fill='x', pady=10)
+        
+        # 创建参数表格 (9-parameter LLX2026, DE solution)
+        params_info = [
+            ("θ₁ = 1064", "θ₂ = 0.306", "θ₃ = 1.50", "θ₄ = 62.7"),
+            ("θ₅ = 1.34", "θ₆ = 0.840", "θ₇ = 0.371", "θ₈ = 0.109"),
+            ("θ₉ = 0.380", "", "", "")
+        ]
+        
+        for row_params in params_info:
+            row = tk.Frame(param_frame, bg=self.colors['white'])
+            row.pack(fill='x', pady=2)
+            for param in row_params:
+                tk.Label(row, text=param, font=('Times New Roman', 10),
+                        fg=self.colors['text'], bg=self.colors['white'],
+                        width=18, anchor='center').pack(side='left', padx=5)
+        
+        # 性能指标
+        perf_frame = tk.LabelFrame(intro_frame, text=" Model Performance ",
+                                  font=('Times New Roman', 11, 'bold'),
+                                  fg=self.colors['header'], bg=self.colors['white'],
+                                  padx=20, pady=15)
+        perf_frame.pack(fill='x', pady=10)
+        
+        perf_row = tk.Frame(perf_frame, bg=self.colors['white'])
+        perf_row.pack()
+        
+        metrics = [("Grouped RMSE", "57.40 με"), ("Grouped R²", "0.9693"),
+                   ("MAE", "42.58 με"), ("MAPE", "14.23%")]
+        
+        for metric, value in metrics:
+            metric_frame = tk.Frame(perf_row, bg=self.colors['white'], padx=20)
+            metric_frame.pack(side='left')
+            tk.Label(metric_frame, text=metric, font=('Times New Roman', 10),
+                    fg='#7F8C8D', bg=self.colors['white']).pack()
+            tk.Label(metric_frame, text=value, font=('Times New Roman', 14, 'bold'),
+                    fg=self.colors['accent'], bg=self.colors['white']).pack()
+
+        # 预测区间 + 适用域说明
+        note_frame = tk.LabelFrame(intro_frame, text=" Prediction Interval and Applicability ",
+                                   font=('Times New Roman', 11, 'bold'),
+                                   fg=self.colors['header'], bg=self.colors['white'],
+                                   padx=20, pady=12)
+        note_frame.pack(fill='x', pady=10)
+        notes = [
+            "Prediction intervals are calibrated from experiment-grouped out-of-fold residuals.",
+            "Inputs should remain within the ranges represented by the NU analysis cohort.",
+            "Predictions near sparsely represented boundaries carry greater empirical uncertainty.",
+        ]
+        for line in notes:
+            tk.Label(note_frame, text=line, font=('Times New Roman', 10),
+                     fg=self.colors['text'], bg=self.colors['white'], anchor='w').pack(anchor='w')
+        
+    def create_predict_tab(self):
+        """创建单样本预测选项卡"""
+        # 主容器
+        main_container = tk.Frame(self.predict_tab, bg=self.colors['white'])
+        main_container.pack(fill='both', expand=True, padx=20, pady=15)
+        
+        # 左侧：输入参数
+        left_frame = tk.LabelFrame(main_container, text=" Input Parameters ",
+                                  font=('Times New Roman', 12, 'bold'),
+                                  fg=self.colors['header'], bg=self.colors['white'],
+                                  padx=25, pady=15)
+        left_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
+        
+        # 输入变量
+        self.entries = {}
+        
+        input_params = [
+            ("t", "Drying Time", "days", "100"),
+            ("t0", "Curing Age", "days", "7"),
+            ("RH", "Relative Humidity", "%", "60"),
+            ("VtoS", "Volume-to-Surface Ratio", "mm", "50"),
+            ("wc", "Water-to-Cement Ratio", "-", "0.45"),
+            ("agg", "Total Aggregate Content", "kg/m3", "1860"),
+        ]
+        
+        for i, (key, label, unit, default) in enumerate(input_params):
+            row = tk.Frame(left_frame, bg=self.colors['white'])
+            row.pack(fill='x', pady=6)
+            
+            # 参数标签
+            param_label = tk.Label(row, text=f"{label}:",
+                                  font=('Times New Roman', 11),
+                                  fg=self.colors['text'], bg=self.colors['white'],
+                                  width=28, anchor='e')
+            param_label.pack(side='left')
+            
+            # 输入框
+            entry = ttk.Entry(row, width=15, font=('Times New Roman', 11))
+            entry.insert(0, default)
+            entry.pack(side='left', padx=10)
+            self.entries[key] = entry
+            
+            # 单位
+            unit_label = tk.Label(row, text=unit,
+                                 font=('Times New Roman', 10),
+                                 fg='#7F8C8D', bg=self.colors['white'],
+                                 width=6, anchor='w')
+            unit_label.pack(side='left')
+        
+        # 预测按钮
+        btn_frame = tk.Frame(left_frame, bg=self.colors['white'])
+        btn_frame.pack(pady=15)
+        
+        predict_btn = tk.Button(btn_frame, text="  Predict  ",
+                               font=('Times New Roman', 12, 'bold'),
+                               bg=self.colors['accent'], fg='white',
+                               activebackground='#2980B9', activeforeground='white',
+                               relief='flat', padx=30, pady=8,
+                               cursor='hand2',
+                               command=self.predict_single)
+        predict_btn.pack(side='left', padx=6)
+
+        plot_btn = tk.Button(btn_frame, text="  Plot Curve  ",
+                             font=('Times New Roman', 12, 'bold'),
+                             bg='#27AE60', fg='white',
+                             activebackground='#1E8449', activeforeground='white',
+                             relief='flat', padx=22, pady=8,
+                             cursor='hand2',
+                             command=self.plot_curve)
+        plot_btn.pack(side='left', padx=6)
+        
+        # 结果显示
+        result_frame = tk.LabelFrame(left_frame, text=" Prediction Result ",
+                                    font=('Times New Roman', 11, 'bold'),
+                                    fg=self.colors['header'], bg=self.colors['white'],
+                                    padx=20, pady=15)
+        result_frame.pack(fill='x', pady=(10, 0))
+        
+        # 使用Canvas绘制带下标的结果 + 预测区间
+        self.result_canvas = tk.Canvas(result_frame, width=380, height=98,
+                                       bg=self.colors['white'], highlightthickness=0)
+        self.result_canvas.pack(pady=8)
+        
+        # 初始显示
+        self.draw_result_text("---")
+        
+        # 右侧：示意图
+        right_frame = tk.LabelFrame(main_container, text=" Schematic Diagram ",
+                                   font=('Times New Roman', 12, 'bold'),
+                                   fg=self.colors['header'], bg=self.colors['white'],
+                                   padx=15, pady=15)
+        right_frame.pack(side='right', fill='both', padx=(10, 0))
+        
+        # 创建示意图
+        self.create_schematic(right_frame)
+        
+    # def create_schematic(self, parent):
+    #     """创建混凝土收缩示意图"""
+    #     canvas_width = 280
+    #     canvas_height = 350
+        
+    #     canvas = tk.Canvas(parent, width=canvas_width, height=canvas_height,
+    #                       bg='white', highlightthickness=1, highlightbackground='#BDC3C7')
+    #     canvas.pack(pady=10)
+        
+    #     # 绘制混凝土试件示意图
+    #     # 试件轮廓
+    #     x1, y1 = 90, 60
+    #     x2, y2 = 190, 260
+        
+    #     # 试件主体（渐变效果模拟）
+    #     for i in range(10):
+    #         shade = 180 + i * 5
+    #         color = f'#{shade:02x}{shade:02x}{shade:02x}'
+    #         canvas.create_rectangle(x1+i, y1+i, x2-i, y2-i, 
+    #                                fill=color, outline='')
+        
+    #     # 试件边框
+    #     canvas.create_rectangle(x1, y1, x2, y2, outline='#2C3E50', width=2)
+        
+    #     # 收缩箭头
+    #     arrow_style = {'fill': '#E74C3C', 'width': 2}
+    #     # 左侧收缩
+    #     canvas.create_line(60, 160, 85, 160, arrow='last', **arrow_style)
+    #     # 右侧收缩
+    #     canvas.create_line(220, 160, 195, 160, arrow='last', **arrow_style)
+    #     # 顶部收缩
+    #     canvas.create_line(140, 30, 140, 55, arrow='last', **arrow_style)
+    #     # 底部收缩
+    #     canvas.create_line(140, 290, 140, 265, arrow='last', **arrow_style)
+        
+    #     # 标注尺寸
+    #     # V/S 标注
+    #     canvas.create_line(210, 70, 230, 70, fill='#3498DB', width=1)
+    #     canvas.create_line(210, 250, 230, 250, fill='#3498DB', width=1)
+    #     canvas.create_line(220, 70, 220, 250, fill='#3498DB', width=1, arrow='both')
+    #     canvas.create_text(245, 160, text="V/S", font=('Times New Roman', 9, 'italic'),
+    #                       fill='#3498DB', anchor='w')
+        
+    #     # 湿度标注
+    #     canvas.create_text(140, 20, text="RH (%)", font=('Times New Roman', 9, 'italic'),
+    #                       fill='#27AE60')
+        
+    #     # 时间标注
+    #     canvas.create_text(35, 160, text="t", font=('Times New Roman', 10, 'italic'),
+    #                       fill='#E74C3C')
+        
+    #     # 收缩应变标注
+    #     canvas.create_text(140, 310, text="εsh", font=('Times New Roman', 11, 'italic', 'bold'),
+    #                       fill='#2C3E50')
+        
+    #     # 图例
+    #     canvas.create_text(140, 340, text="Drying Shrinkage Schematic",
+    #                       font=('Times New Roman', 9), fill='#7F8C8D')
+
+    def create_schematic(self, parent):
+        """创建混凝土干燥收缩示意图 - 符合物理机理"""
+        canvas_width = 280
+        canvas_height = 380
+        
+        canvas = tk.Canvas(parent, width=canvas_width, height=canvas_height,
+                          bg='white', highlightthickness=1, highlightbackground='#BDC3C7')
+        canvas.pack(pady=10)
+        
+        # ========== 绘制混凝土试件 ==========
+        # 原始尺寸（实线）
+        x1, y1 = 80, 80
+        x2, y2 = 200, 240
+        
+        # 试件主体（灰色填充，模拟混凝土）
+        for i in range(8):
+            shade = 175 + i * 6
+            color = f'#{shade:02x}{shade:02x}{shade:02x}'
+            canvas.create_rectangle(x1+i, y1+i, x2-i, y2-i, 
+                                   fill=color, outline='')
+        
+        # 原始轮廓（实线）
+        canvas.create_rectangle(x1, y1, x2, y2, outline='#2C3E50', width=2)
+        
+        # 收缩后轮廓（虚线，稍微向内）
+        shrink = 8
+        canvas.create_rectangle(x1+shrink, y1+shrink, x2-shrink, y2-shrink, 
+                               outline='#E74C3C', width=1.5, dash=(4, 3))
+        
+        # ========== 水分蒸发箭头（从表面向外）==========
+        arrow_color = '#3498DB'
+        # 顶部蒸发
+        for dx in [-30, 0, 30]:
+            cx = 140 + dx
+            canvas.create_line(cx, y1, cx, y1-25, fill=arrow_color, width=1.5, arrow='last')
+            # 小波浪表示水蒸气
+            canvas.create_text(cx, y1-30, text="~", font=('Arial', 8), fill=arrow_color)
+        
+        # 左侧蒸发
+        for dy in [40, 80]:
+            cy = y1 + dy
+            canvas.create_line(x1, cy, x1-25, cy, fill=arrow_color, width=1.5, arrow='last')
+            canvas.create_text(x1-30, cy, text="~", font=('Arial', 8), fill=arrow_color)
+        
+        # 右侧蒸发
+        for dy in [40, 80]:
+            cy = y1 + dy
+            canvas.create_line(x2, cy, x2+25, cy, fill=arrow_color, width=1.5, arrow='last')
+            canvas.create_text(x2+30, cy, text="~", font=('Arial', 8), fill=arrow_color)
+        
+        # ========== 标注 ==========
+        # 环境湿度 RH
+        canvas.create_text(140, 35, text="Environment: RH (%)", 
+                          font=('Times New Roman', 9, 'italic'), fill='#3498DB')
+        
+        # H₂O 标注
+        canvas.create_text(45, 120, text="H₂O", 
+                          font=('Times New Roman', 9, 'italic'), fill='#3498DB')
+        
+        # 尺寸标注 (V/S)
+        canvas.create_line(x2+40, y1, x2+40, y2, fill='#7F8C8D', width=1, arrow='both')
+        canvas.create_line(x2+35, y1, x2+45, y1, fill='#7F8C8D', width=1)
+        canvas.create_line(x2+35, y2, x2+45, y2, fill='#7F8C8D', width=1)
+        canvas.create_text(x2+55, (y1+y2)/2, text="V/S", 
+                          font=('Times New Roman', 10, 'italic'), fill='#7F8C8D', angle=90)
+        
+        # ========== 图例说明 ==========
+        legend_y = 270
+        # 实线图例
+        canvas.create_line(70, legend_y, 100, legend_y, fill='#2C3E50', width=2)
+        canvas.create_text(105, legend_y, text="Original", 
+                          font=('Times New Roman', 9), fill='#2C3E50', anchor='w')
+        
+        # 虚线图例
+        canvas.create_line(70, legend_y+20, 100, legend_y+20, fill='#E74C3C', width=1.5, dash=(4,3))
+        canvas.create_text(105, legend_y+20, text="After shrinkage", 
+                          font=('Times New Roman', 9), fill='#E74C3C', anchor='w')
+        
+        # 蒸发箭头图例
+        canvas.create_line(70, legend_y+40, 95, legend_y+40, fill='#3498DB', width=1.5, arrow='last')
+        canvas.create_text(105, legend_y+40, text="Moisture loss", 
+                          font=('Times New Roman', 9), fill='#3498DB', anchor='w')
+        
+        # 底部说明
+        canvas.create_text(140, 355, text="Drying Shrinkage Mechanism",
+                          font=('Times New Roman', 9, 'italic'), fill='#7F8C8D')
+
+    def draw_result_text(self, value, ci=None):
+        """绘制预测结果 (ε斜体, sh下标) 及预测区间.
+
+        ci = (lo90, hi90, lo95, hi95) 或 None.
+        """
+        self.result_canvas.delete("all")
+
+        cx = 190
+        cy = 24
+        color = self.colors['success']
+
+        # epsilon (italic)
+        self.result_canvas.create_text(cx - 95, cy, text="ε",
+                                       font=('Times New Roman', 20, 'bold italic'),
+                                       fill=color, anchor='center')
+        # sh subscript
+        self.result_canvas.create_text(cx - 78, cy + 8, text="sh",
+                                       font=('Times New Roman', 12, 'bold'),
+                                       fill=color, anchor='center')
+        # = value με
+        self.result_canvas.create_text(cx + 22, cy, text=f"= {value} με",
+                                       font=('Times New Roman', 20, 'bold italic'),
+                                       fill=color, anchor='center')
+
+        if ci is not None:
+            lo90, hi90, lo95, hi95 = ci
+            self.result_canvas.create_text(cx, 60,
+                text=f"90% PI:  [ {lo90:.1f} ,  {hi90:.1f} ]  με",
+                font=('Times New Roman', 12, 'bold'),
+                fill=self.colors['accent'], anchor='center')
+            self.result_canvas.create_text(cx, 82,
+                text=f"95% PI:  [ {lo95:.1f} ,  {hi95:.1f} ]  με",
+                font=('Times New Roman', 11),
+                fill='#7F8C8D', anchor='center')
+        else:
+            self.result_canvas.create_text(cx, 68,
+                text="Prediction interval shown after prediction",
+                font=('Times New Roman', 9, 'italic'),
+                fill='#B0B0B0', anchor='center')
+        
+    # def create_batch_tab(self):
+
+
+
+
+
+
+        
+    def create_batch_tab(self):
+        """创建批量预测选项卡"""
+        main_frame = tk.Frame(self.batch_tab, bg=self.colors['white'])
+        main_frame.pack(fill='both', expand=True, padx=30, pady=20)
+        
+        # 说明
+        tk.Label(main_frame, text="Batch Prediction from CSV File",
+                font=('Times New Roman', 14, 'bold'),
+                fg=self.colors['header'], bg=self.colors['white']).pack(anchor='w', pady=(0, 15))
+        
+        # 文件格式说明
+        format_frame = tk.LabelFrame(main_frame, text=" Required CSV Format ",
+                                    font=('Times New Roman', 11, 'bold'),
+                                    fg=self.colors['header'], bg=self.colors['white'],
+                                    padx=20, pady=15)
+        format_frame.pack(fill='x', pady=10)
+        
+        columns = ["dt (days)", "t0 (days)", "RH (%)", "VtoS (mm)", "wc (-)", "agg_total (kg/m3)"]
+        tk.Label(format_frame, text="Required columns: " + ", ".join(columns),
+                font=('Times New Roman', 10), fg=self.colors['text'],
+                bg=self.colors['white']).pack(anchor='w')
+        tk.Label(format_frame, text="Output adds: predicted shrinkage with 90% prediction interval (lower / upper).",
+                font=('Times New Roman', 9, 'italic'), fg='#7F8C8D',
+                bg=self.colors['white']).pack(anchor='w', pady=(4, 0))
+        
+        # 文件选择
+        file_frame = tk.Frame(main_frame, bg=self.colors['white'])
+        file_frame.pack(fill='x', pady=20)
+        
+        tk.Label(file_frame, text="Input File:",
+                font=('Times New Roman', 11),
+                fg=self.colors['text'], bg=self.colors['white']).pack(side='left')
+        
+        self.file_path_var = tk.StringVar()
+        file_entry = ttk.Entry(file_frame, textvariable=self.file_path_var, 
+                              width=50, font=('Times New Roman', 10))
+        file_entry.pack(side='left', padx=10)
+        
+        browse_btn = tk.Button(file_frame, text="Browse",
+                              font=('Times New Roman', 10),
+                              bg='#ECF0F1', fg=self.colors['text'],
+                              relief='flat', padx=15, pady=3,
+                              command=self.browse_file)
+        browse_btn.pack(side='left')
+        
+        # 预测按钮
+        btn_frame = tk.Frame(main_frame, bg=self.colors['white'])
+        btn_frame.pack(pady=15)
+        
+        batch_btn = tk.Button(btn_frame, text="  Run Batch Prediction  ",
+                             font=('Times New Roman', 12, 'bold'),
+                             bg=self.colors['accent'], fg='white',
+                             activebackground='#2980B9', activeforeground='white',
+                             relief='flat', padx=25, pady=8,
+                             cursor='hand2',
+                             command=self.predict_batch)
+        batch_btn.pack()
+        
+        # 结果显示区
+        result_frame = tk.LabelFrame(main_frame, text=" Results Preview ",
+                                    font=('Times New Roman', 11, 'bold'),
+                                    fg=self.colors['header'], bg=self.colors['white'],
+                                    padx=15, pady=10)
+        result_frame.pack(fill='both', expand=True, pady=10)
+        
+        # 创建表格（含90%预测区间）
+        columns = ('No.', 't', 't0', 'RH', 'V/S', 'w/c', 'a', 'εsh', 'PI 90% Low', 'PI 90% Up')
+        self.result_tree = ttk.Treeview(result_frame, columns=columns, show='headings', height=8)
+
+        col_widths = [35, 48, 42, 42, 48, 52, 62, 72, 72, 72]
+        for col, width in zip(columns, col_widths):
+            self.result_tree.heading(col, text=col)
+            self.result_tree.column(col, width=width, anchor='center')
+        
+        scrollbar = ttk.Scrollbar(result_frame, orient='vertical', command=self.result_tree.yview)
+        self.result_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.result_tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+        
+        # 导出按钮
+        export_btn = tk.Button(main_frame, text="  Export Results  ",
+                              font=('Times New Roman', 10),
+                              bg='#27AE60', fg='white',
+                              relief='flat', padx=20, pady=5,
+                              cursor='hand2',
+                              command=self.export_results)
+        export_btn.pack(pady=10)
+        
+        self.batch_results = None
+        
+    @staticmethod
+    def va_from_agg(agg_total):
+        """Mass-derived aggregate-volume proxy from total aggregate content (kg/m3)."""
+        return float(np.clip(aggregate_volume_fraction(agg_total), 0.30, 0.85))
+
+    def llx_predict(self, dt, t0, RH, VtoS, wc, Va):
+        """LLX2026 (9-parameter) deterministic shrinkage prediction, microstrain."""
+        return float(model_predict(
+            drying_time=dt,
+            curing_age=t0,
+            relative_humidity=RH,
+            volume_to_surface=VtoS,
+            water_cement_ratio=wc,
+            aggregate_volume_fraction_value=Va,
+        ))
+
+    def pi_half_widths(self, dt):
+        """Return cross-fitted 90% and 95% prediction-interval half-widths."""
+        zero = np.asarray(0.0)
+        lo90, hi90 = prediction_interval(zero, dt, 0.90)
+        lo95, hi95 = prediction_interval(zero, dt, 0.95)
+        return float(hi90), float(hi95)
+
+    def predict_with_ci(self, dt, t0, RH, VtoS, wc, Va):
+        """Return the point prediction and cross-fitted empirical prediction intervals."""
+        mean = self.llx_predict(dt, t0, RH, VtoS, wc, Va)
+        lo90, hi90 = prediction_interval(mean, dt, 0.90)
+        lo95, hi95 = prediction_interval(mean, dt, 0.95)
+        return mean, float(lo90), float(hi90), float(lo95), float(hi95)
+    
+    def predict_single(self):
+        """单样本预测（含预测区间）"""
+        try:
+            dt = float(self.entries['t'].get())
+            t0 = float(self.entries['t0'].get())
+            RH = float(self.entries['RH'].get())
+            VtoS = float(self.entries['VtoS'].get())
+            wc = float(self.entries['wc'].get())
+            agg = float(self.entries['agg'].get())
+
+            # 验证输入
+            if dt <= 0 or t0 <= 0 or RH < 0 or RH > 100 or VtoS <= 0 or wc <= 0 or agg <= 0:
+                messagebox.showerror("Input Error", "Please enter valid positive values.")
+                return
+
+            # 点预测 + 预测区间
+            Va = self.va_from_agg(agg)
+            mean, lo90, hi90, lo95, hi95 = self.predict_with_ci(dt, t0, RH, VtoS, wc, Va)
+
+            # 显示结果 (含 CI)
+            self.draw_result_text(f"{mean:.2f}", ci=(lo90, hi90, lo95, hi95))
+
+        except ValueError:
+            messagebox.showerror("Input Error", "Please enter valid numeric values.")
+    
+    def plot_curve(self):
+        """Plot shrinkage versus drying time with cross-fitted prediction intervals."""
+        # read the mix from the input fields (drying time comes from a dialog)
+        try:
+            t_now = float(self.entries['t'].get())
+            t0 = float(self.entries['t0'].get())
+            RH = float(self.entries['RH'].get())
+            VtoS = float(self.entries['VtoS'].get())
+            wc = float(self.entries['wc'].get())
+            agg = float(self.entries['agg'].get())
+        except ValueError:
+            messagebox.showerror("Input Error", "Please enter valid numeric values in the input fields first.")
+            return
+        if t0 <= 0 or RH < 0 or RH > 100 or VtoS <= 0 or wc <= 0 or agg <= 0:
+            messagebox.showerror("Input Error", "Please enter valid positive values in the input fields.")
+            return
+
+        # ask for the drying-time range to plot
+        dt_max = simpledialog.askfloat(
+            "Plot Setup", "Enter the maximum drying time to plot (days):",
+            initialvalue=max(365.0, t_now), minvalue=1.0, parent=self.root)
+        if dt_max is None:
+            return
+
+        try:
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+        except Exception:
+            messagebox.showerror("Matplotlib Required",
+                                 "This plot needs matplotlib.\nInstall it with:\n\n    pip install matplotlib")
+            return
+
+        # Compute the prediction curve and empirical prediction bands.
+        Va = self.va_from_agg(agg)
+        dts = np.linspace(1.0, dt_max, 400)
+        mean = np.array([self.llx_predict(d, t0, RH, VtoS, wc, Va) for d in dts])
+        widths = np.array([self.pi_half_widths(d) for d in dts])
+        lo90, hi90 = np.maximum(0.0, mean - widths[:, 0]), mean + widths[:, 0]
+        lo95, hi95 = np.maximum(0.0, mean - widths[:, 1]), mean + widths[:, 1]
+
+        fig = Figure(figsize=(7.2, 5.0), dpi=100)
+        ax = fig.add_subplot(111)
+        ax.fill_between(dts, lo95, hi95, color='#3498DB', alpha=0.15, label='95% PI')
+        ax.fill_between(dts, lo90, hi90, color='#3498DB', alpha=0.32, label='90% PI')
+        ax.plot(dts, mean, color='#1F4E79', lw=2.0, label='Predicted mean')
+
+        # mark the drying-time entered in the input field
+        if 1.0 <= t_now <= dt_max:
+            m, l90, h90, _, _ = self.predict_with_ci(t_now, t0, RH, VtoS, wc, Va)
+            ax.errorbar([t_now], [m], yerr=[[m - l90], [h90 - m]], fmt='o', color='#E74C3C',
+                        ms=6, capsize=4, lw=1.5, zorder=5, label=f't = {t_now:.0f} d')
+            ax.annotate(f"{m:.0f}\n[{l90:.0f}, {h90:.0f}]", xy=(t_now, m),
+                        xytext=(8, -30), textcoords='offset points', fontsize=8, color='#E74C3C')
+
+        ax.set_xlabel(r'Drying time  $t-t_0$  (days)', fontsize=11)
+        ax.set_ylabel(r'Predicted drying-shrinkage magnitude  $\widehat{\varepsilon}_{\mathrm{sh}}$  ($\mu\varepsilon$)', fontsize=11)
+        ax.set_title('LLX2026 drying-shrinkage prediction with prediction intervals',
+                     fontsize=12, fontweight='bold')
+        ax.set_xlim(0, dt_max)
+        ax.set_ylim(bottom=0)
+        ax.grid(True, ls='--', alpha=0.4)
+        ax.legend(loc='lower right', fontsize=9, framealpha=0.9)
+        cond = (f"t0 = {t0:.0f} d,  RH = {RH:.0f}%,  V/S = {VtoS:.0f} mm,  "
+                f"w/c = {wc:.2f},  agg = {agg:.0f} kg/m3  (Va = {Va:.3f})")
+        ax.text(0.02, 0.97, cond, transform=ax.transAxes, fontsize=8, va='top',
+                bbox=dict(boxstyle='round', fc='#F5F5F5', ec='#BDC3C7', alpha=0.9))
+        fig.tight_layout()
+
+        # popup window with embedded figure + toolbar (zoom/pan/save)
+        win = tk.Toplevel(self.root)
+        win.title("Drying-shrinkage Development Curve")
+        win.configure(bg=self.colors['white'])
+        canvas = FigureCanvasTkAgg(fig, master=win)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True, padx=8, pady=(8, 0))
+        toolbar = NavigationToolbar2Tk(canvas, win)
+        toolbar.update()
+        toolbar.pack(fill='x', padx=8, pady=(0, 8))
+
+    def browse_file(self):
+        """浏览文件"""
+        filepath = filedialog.askopenfilename(
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        if filepath:
+            self.file_path_var.set(filepath)
+    
+    def predict_batch(self):
+        """批量预测"""
+        filepath = self.file_path_var.get()
+        if not filepath:
+            messagebox.showerror("Error", "Please select a CSV file first.")
+            return
+        
+        try:
+            df = pd.read_csv(filepath)
+            
+            # 大小写不敏感取列 (支持常见列名变体)
+            cols = {str(c).lower(): c for c in df.columns}
+
+            def gv(row, names, default):
+                for nm in names:
+                    if nm.lower() in cols:
+                        v = row[cols[nm.lower()]]
+                        if pd.notna(v):
+                            return float(v)
+                return default
+
+            # 点预测 + 90%预测区间
+            means, lo90s, hi90s = [], [], []
+            for _, row in df.iterrows():
+                dt = gv(row, ['dt', 't-t0', 'drying_time'], 100.0)
+                t0 = gv(row, ['t0', 'curing_age'], 7.0)
+                RH = gv(row, ['RH', 'h'], 60.0)
+                VtoS = gv(row, ['VtoS', 'V/S', 'vs'], 50.0)
+                wc = gv(row, ['wc', 'w/c', 'w_c'], 0.45)
+                agg = gv(row, ['agg_total', 'agg', 'aggregate', 'aggregate_content'], 1860.0)
+                Va = self.va_from_agg(agg)
+                mean, lo90, hi90, _, _ = self.predict_with_ci(dt, t0, RH, VtoS, wc, Va)
+                means.append(mean); lo90s.append(lo90); hi90s.append(hi90)
+
+            df['Predicted_Shrinkage_ue'] = means
+            df['PI90_Lower_ue'] = lo90s
+            df['PI90_Upper_ue'] = hi90s
+            self.batch_results = df
+
+            # 清空表格
+            for item in self.result_tree.get_children():
+                self.result_tree.delete(item)
+
+            # 填充表格
+            for i, row in df.head(50).iterrows():
+                self.result_tree.insert('', 'end', values=(
+                    i + 1,
+                    f"{gv(row, ['dt'], 0):.0f}",
+                    f"{gv(row, ['t0'], 0):.0f}",
+                    f"{gv(row, ['RH'], 0):.0f}",
+                    f"{gv(row, ['VtoS', 'V/S', 'vs'], 0):.1f}",
+                    f"{gv(row, ['wc', 'w/c'], 0):.3f}",
+                    f"{gv(row, ['agg_total', 'agg', 'aggregate'], 0):.0f}",
+                    f"{row['Predicted_Shrinkage_ue']:.2f}",
+                    f"{row['PI90_Lower_ue']:.1f}",
+                    f"{row['PI90_Upper_ue']:.1f}",
+                ))
+
+            messagebox.showinfo("Success", f"Batch prediction completed!\nTotal: {len(df)} samples")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error processing file:\n{str(e)}")
+    
+    def export_results(self):
+        """导出结果"""
+        if self.batch_results is None:
+            messagebox.showerror("Error", "No results to export. Run batch prediction first.")
+            return
+        
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        if filepath:
+            self.batch_results.to_csv(filepath, index=False)
+            messagebox.showinfo("Success", f"Results exported to:\n{filepath}")
+    
+    def take_screenshot(self):
+        """截取窗口高清图 - 截图时自动隐藏截图按钮"""
+        # 1. 隐藏截图按钮
+        self.screenshot_btn.place_forget()
+        
+        # 2. 更新界面，确保按钮已隐藏
+        self.root.update_idletasks()
+        self.root.update()
+        
+        # 3. 短暂延迟确保界面刷新完成
+        self.root.after(100, self._do_screenshot)
+    
+    def _do_screenshot(self):
+        """执行实际的截图操作 - 包含标题栏"""
+        try:
+            # 获取窗口内容区域位置
+            content_x = self.root.winfo_rootx()
+            content_y = self.root.winfo_rooty()
+            
+            # 获取窗口位置（包括标题栏）
+            window_x = self.root.winfo_x()
+            window_y = self.root.winfo_y()
+            
+            # 计算标题栏高度和边框宽度
+            titlebar_height = content_y - window_y
+            border_width = content_x - window_x
+            
+            # 窗口内容尺寸
+            width = self.root.winfo_width()
+            height = self.root.winfo_height()
+            
+            # 计算完整窗口的截图区域（包含标题栏和边框）
+            x1 = content_x - border_width
+            y1 = content_y - titlebar_height
+            x2 = content_x + width + border_width
+            y2 = content_y + height + border_width
+            
+            # 完整窗口尺寸
+            full_width = x2 - x1
+            full_height = y2 - y1
+            
+            # 截图
+            img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
+            
+            # 选择保存路径
+            filepath = filedialog.asksaveasfilename(
+                defaultextension=".png",
+                filetypes=[("PNG files", "*.png"), ("All files", "*.*")],
+                initialfile="GUI_screenshot.png"
+            )
+            
+            if filepath:
+                # 放大2倍获得更高分辨率
+                scale_factor = 2
+                img_hd = img.resize((full_width * scale_factor, full_height * scale_factor), Image.LANCZOS)
+                img_hd.save(filepath, dpi=(600, 600))
+                messagebox.showinfo("Success", f"Screenshot saved:\n{filepath}\n\nResolution: {full_width*scale_factor} × {full_height*scale_factor} px\nDPI: 600")
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"Screenshot failed:\n{str(e)}")
+        
+        finally:
+            # 恢复显示截图按钮
+            self.screenshot_btn.place(relx=0.98, rely=0.5, anchor='e')
+
+
+def main():
+    root = tk.Tk()
+    app = ShrinkagePredictionGUI(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()

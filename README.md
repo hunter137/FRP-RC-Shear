@@ -1,312 +1,151 @@
-# FRP-ShearPred
+# LLX2026 Concrete Drying Shrinkage Prediction
 
-**An open-source platform for shear capacity prediction of stirrup-free FRP-reinforced concrete beams integrating design codes and ensemble machine learning**
+Version 1
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](https://www.python.org/)
-[![Tests](https://github.com/hunter137/FRP-RC-Shear/actions/workflows/tests.yml/badge.svg)](https://github.com/hunter137/FRP-RC-Shear/actions/workflows/tests.yml)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19503522.svg)](https://doi.org/10.5281/zenodo.19503522)
-[![SoftwareX](https://img.shields.io/badge/SoftwareX-10.1016%2Fj.softx.2026.102811-orange)](https://doi.org/10.1016/j.softx.2026.102811)
+This repository contains a Python implementation and desktop interface for the
+LLX2026 concrete drying-shrinkage equation. The program supports individual
+prediction, CSV batch prediction, development-curve plotting, and empirical
+prediction intervals.
 
----
+The model is associated with the manuscript *Metaheuristic-Based Parameter
+Calibration of Empirical Concrete Drying Shrinkage Models: Systematic
+Evaluation and Improved Formulation*. The manuscript has not been accepted or
+published. This repository is a software record and should not be interpreted
+as evidence of journal acceptance or peer-review endorsement.
 
-## Overview
+## Interface
 
-FRP-ShearPred is a cross-platform desktop application for shear strength assessment of fibre-reinforced polymer (FRP) reinforced concrete beams without shear reinforcement. It brings together five international design codes and eight ensemble machine learning algorithms in a single graphical environment, so that code predictions, ML predictions, and experimental data can all be compared without switching tools.
+### Model formulation
 
-The software is aimed at structural engineers and researchers who work with FRP-RC experimental databases. A typical workflow is to load a dataset, train one or more ML models with Bayesian or evolutionary hyperparameter optimisation, inspect model behaviour through SHAP and partial dependence plots, and export results for reliability or statistical post-processing.
+![Model formulation](docs/screenshots/01_model_formulation.png)
 
----
+### Individual prediction
 
-## Screenshots
+![Individual prediction](docs/screenshots/02_individual_prediction.png)
 
-**Prediction Tab** — enter beam parameters, load a trained model bundle, and
-compare all design-code predictions against the ML model in a single view.
+### Batch prediction
 
-![Prediction Tab](docs/screenshots/01_prediction_tab.png)
+![Batch prediction](docs/screenshots/03_batch_prediction.png)
 
-**Training Summary** — ranked performance table for all eight algorithms after
-Bayesian optimisation, with live convergence curves.
+### Development curve
 
-![Training Summary](docs/screenshots/02_training_summary.png)
+![Development curve](docs/screenshots/04_development_curve.png)
 
-**Algorithm Configuration** — per-algorithm hyperparameter editor with
-lock/free toggles and user-defined search ranges for each optimisation strategy.
+## Requirements
 
-![Algorithm Configuration](docs/screenshots/03_algorithm_config.png)
+- Python 3.8 or later
+- Tkinter
+- NumPy
+- pandas
+- Pillow
+- Matplotlib
 
-**Feature Importance** — Gini impurity-based ranking for the best model
-(Extra Trees shown); all diagnostic plots are exportable as CSV or image files.
-
-![Feature Importance](docs/screenshots/04_feature_importance.png)
-
----
-
-## Features
-
-- Five design codes side-by-side: GB 50608-2020, ACI 440.1R-15, CSA S806-12, BISE (1999), JSCE (1997)
-- Eight ensemble ML algorithms: GBDT, XGBoost, LightGBM, CatBoost, Random Forest, Extra Trees, AdaBoost, KNN
-- Three hyperparameter optimisation strategies: Bayesian search (Optuna TPE), TLBO, and NSGA-II multi-objective
-- 95 % split conformal prediction intervals (Vovk et al., 2005) attached to every ML prediction, with a distribution-free finite-sample marginal coverage guarantee
-- Applicability-domain check: per-input training-range tooltips warn when a query falls outside the data envelope tree-based models can support
-- Non-negative output constraint applied to both design-code formulas and ML predictions (shear capacity is physically ≥ 0)
-- Model interpretability via SHAP beeswarm plots, Gini feature importance, and response surface analysis
-- Batch prediction over entire CSV/Excel databases with one-click export
-- Portable `.frpmdl` model bundles that carry the fitted model, scaler, encoder, and metadata in one file
-- Interactive beam cross-section schematic with annotated parameter labels
-
----
-
-## Installation
-
-### Requirements
-
-- Python 3.9 or later
-- Operating system: Windows 10/11, macOS 12+, or Linux (Ubuntu 20.04+)
-
-### Option 1 — conda (recommended)
+Install the dependencies with:
 
 ```bash
-git clone https://github.com/hunter137/FRP-RC-Shear.git
-cd FRP-RC-Shear
-conda env create -f environment.yml
-conda activate frpshear
+python -m pip install -r requirements.txt
+```
+
+## Run the program
+
+From the repository directory:
+
+```bash
 python main.py
 ```
 
-### Option 2 — pip
+The interface display is retained from the original program. Numerical,
+batch-processing, and plotting functions are also available from the
+`llx2026` package for use in scripts or notebooks.
+
+## Inputs
+
+| Input | Meaning | Unit |
+|---|---|---|
+| `dt` | Drying duration | days |
+| `t0` | Age at the start of drying | days |
+| `RH` | Relative humidity | % |
+| `VtoS` | Volume-to-surface ratio | mm |
+| `wc` | Water-to-cement ratio | – |
+| `agg_total` | Total aggregate content | kg/m³ |
+
+An example batch-input file is provided at
+[`examples/batch_input.csv`](examples/batch_input.csv).
+
+## Python use
+
+```python
+from llx2026 import ShrinkageInputs, evaluate
+
+inputs = ShrinkageInputs(
+    drying_time=100,
+    curing_age=7,
+    relative_humidity=60,
+    volume_to_surface=50,
+    water_cement_ratio=0.45,
+    aggregate_content=1860,
+)
+
+result = evaluate(inputs)
+print(result.value)
+print(result.pi90_lower, result.pi90_upper)
+```
+
+## Data note
+
+The original calibration database is not included in this repository. The CSV
+file in `examples/` only demonstrates the required input format.
+
+## Model-use note
+
+The program is provided for research and educational use. Prediction intervals
+are empirical record-level intervals, not confidence intervals for the mean.
+Predictions outside the calibration domain should be treated cautiously. The
+software is not a design code and should not be used as the sole basis for
+structural design or safety decisions.
+
+## Zenodo record
+
+A DOI has been reserved in a Zenodo draft, but the record has not yet been
+published. Consequently, DOI resolver links are not active at present. The
+planned Zenodo record address is:
+
+[https://zenodo.org/records/21614015](https://zenodo.org/records/21614015)
+
+After the Zenodo record is published, this section can be updated with the
+active DOI citation.
+
+## Authors
+
+- Deyu Liang
+- Jinlong Liu
+- Lei Xu
+
+## Repository structure
+
+```text
+LLX2026-drying-shrinkage-predictor/
+├── main.py                  # application entry point
+├── src/llx2026/
+│   ├── gui.py               # original desktop interface
+│   ├── model.py             # LLX2026 numerical model
+│   ├── batch.py             # CSV and DataFrame helpers
+│   └── plotting.py          # reusable plotting function
+├── examples/                # example CSV input
+├── docs/screenshots/        # four interface screenshots
+├── tests/                   # automated checks
+├── CITATION.cff
+├── MODEL_CARD.md
+└── LICENSE
+```
+
+After installing the project in editable mode, run the checks with:
 
 ```bash
-git clone https://github.com/hunter137/FRP-RC-Shear.git
-cd FRP-RC-Shear
-pip install -r requirements.txt
-python main.py
+python -m pip install -e .
+python -m unittest discover -s tests -v
 ```
-
-### Optional: CatBoost
-
-CatBoost is excluded from the default install due to its large package size (~400 MB). Install separately if needed:
-
-```bash
-pip install catboost
-```
-
----
-
-## Usage
-
-### Single Prediction
-
-1. Open the **Prediction** tab.
-2. Enter beam parameters (a/d, d, b, f′c, ρf, Ef, FRP type).
-3. Load a pre-trained model bundle (`.frpmdl`) or train your own in the Training tab.
-4. Click **Predict** to obtain results from all design codes and the loaded ML model simultaneously. A 95 % conformal prediction interval is shown below the point estimate.
-5. Click the small **?** button beside any input to view that parameter's training-data range; values outside the range are flagged because tree-based models do not extrapolate.
-6. Click **Export CSV** to save results.
-
-### Model Training
-
-1. Open the **Model Retraining** tab.
-2. Load an experimental database (`.xls`, `.xlsx`, or `.csv`).
-3. Map columns to required features via the interactive column-mapping dialog.
-4. Select algorithms and an optimisation strategy (Bayesian / TLBO / NSGA-II).
-5. Click **Train**; live metrics and a progress bar are displayed throughout.
-
-### Command-Line Training
-
-```bash
-# Train all models with Bayesian optimisation using the included example dataset
-python train_frp_models.py --data data/testdata.xls
-
-# Train specific models only
-python train_frp_models.py --data data/testdata.xls --only LightGBM KNN
-
-# Reduce trials for a faster exploratory run
-python train_frp_models.py --data data/testdata.xls --trials 200
-
-# Set a wall-clock time limit (minutes)
-python train_frp_models.py --data data/testdata.xls --time-limit 60
-```
-
-### Batch Prediction
-
-1. Click **Batch Prediction** in the Prediction tab.
-2. Select an Excel/CSV file containing beam parameters in the required column format.
-3. Results are computed for all design codes and the loaded ML model.
-4. Export to CSV for downstream reliability or statistical analysis.
-
----
-
-## Input Parameters
-
-| Parameter | Symbol | Unit | Description |
-|-----------|--------|------|-------------|
-| Shear span ratio | a/d | — | Ratio of shear span to effective depth |
-| Effective depth | d | mm | Distance from compression face to centroid of tensile reinforcement |
-| Beam width | b | mm | Width of the rectangular cross-section |
-| Concrete compressive strength | f′c | MPa | Cylinder compressive strength |
-| FRP reinforcement ratio | ρf | % | Longitudinal FRP reinforcement ratio |
-| FRP elastic modulus | Ef | GPa | Elastic modulus of FRP bars |
-| FRP material type | — | — | CFRP, GFRP, BFRP, or AFRP |
-
----
-
-## Design Codes Implemented
-
-| Code | Region | Full Reference |
-|------|--------|----------------|
-| GB 50608-2020 | China | Technical Standard for Application of Fiber Reinforced Polymer (FRP) in Construction |
-| ACI 440.1R-15 | USA | Guide for the Design and Construction of Structural Concrete Reinforced with FRP Bars |
-| CSA S806-12 | Canada | Design and Construction of Building Structures with Fibre-Reinforced Polymers |
-| BISE (1999) | UK | Interim Guidance on the Design of Reinforced Concrete Structures Using Fibre Composite Reinforcement |
-| JSCE (1997) | Japan | Recommendation for Design and Construction of Concrete Structures Using Continuous Fibre Reinforcing Materials |
-
----
-
-## Model Bundle Format
-
-Trained models are saved as `.frpmdl` files (compressed joblib archives). Each bundle contains:
-
-- Fitted model object(s)
-- `MinMaxScaler` fitted on training data
-- Feature column names and `OneHotEncoder` for categorical inputs
-- Training/test metrics and cross-validation scores
-- SHAP calibration subsample (up to 400 rows)
-- Metadata: algorithm name, hyperparameters, training timestamp, software version
-
----
-
-## Project Structure
-
-```
-FRP-RC-Shear/
-├── main.py                  # Application entry point
-├── app.py                   # MainWindow: assembles all tabs
-├── train_frp_models.py      # Command-line training script
-├── formulas.py              # Design code formula implementations
-├── config.py                # Global constants and colour palette
-├── column_mapping.py        # Database column auto-detection and mapping
-├── metrics.py               # Regression evaluation metrics (R², RMSE, MAE, …)
-├── model_io.py              # Model bundle save/load (.frpmdl)
-├── optimization.py          # Hyperparameter search: TLBO, Bayesian, NSGA-II
-├── qt_compat.py             # PyQt5/PySide6 compatibility shim
-├── widgets.py               # Shared UI helper widgets
-├── requirements.txt         # pip dependencies
-├── environment.yml          # conda environment specification
-├── LICENSE                  # MIT License
-├── README.md                # This file
-├── CITATION.cff             # Machine-readable citation metadata
-├── CHANGELOG.md             # Version history
-├── data/
-│   └── testdata.xls         # Example experimental database (728 specimens)
-├── models/
-│   └── README.md            # How to obtain pre-trained model bundles
-├── docs/
-│   └── screenshots/         # Application screenshots
-├── tests/
-│   ├── test_formulas.py     # Unit tests — design code formulas
-│   └── test_metrics.py      # Unit tests — evaluation metrics
-├── tools/
-│   ├── diagnose_crash.py    # Crash diagnostics tool (run instead of main.py)
-│   └── README.md            # Usage instructions for tools
-└── tabs/                    # GUI tab modules and supporting dialogs/threads
-    ├── data_tab.py
-    ├── train_tab.py
-    ├── eval_tab.py
-    ├── code_tab.py
-    ├── predict_tab.py
-    ├── interp_tab.py
-    └── …                    # dialogs, helpers, worker threads, hyperparameter editor
-```
-
----
-
-## Crash Diagnostics
-
-If the application exits silently or crashes without a visible error message,
-run the diagnostics tool instead of `main.py`:
-
-```bash
-python tools/diagnose_crash.py
-```
-
-This generates `crash_diag.log` in the project root.  Attach that file when
-opening a bug report.  See [tools/README.md](tools/README.md) for the full list
-of what the tool captures.
-
----
-
-## Running Tests
-
-```bash
-python -m pytest tests/ -v
-```
-
----
-
-## Scope and Limitations
-
-FRP-ShearPred targets a specific structural configuration; users should be aware of the following before applying it in practice:
-
-- **Intended configuration:** rectangular cross-section concrete beams, longitudinal FRP reinforcement only, no transverse reinforcement (stirrups), monotonic loading.
-- **Training-data ranges** of the bundled 728-specimen dataset (from the fitted MinMaxScaler):
-
-  | Parameter | Min | Max | Unit |
-  |---|---|---|---|
-  | a/d | 0.55 | 16.22 | — |
-  | d | 73 | 1111 | mm |
-  | b | 89 | 1000 | mm |
-  | f′c | 20 | 93 | MPa |
-  | ρf | 0.09 | 3.98 | % |
-  | Ef | 29 | 192 | GPa |
-  | FRP type | CFRP, GFRP, BFRP, AFRP | | |
-
-  The Prediction tab flags inputs that fall outside these ranges. Tree-based ensemble models cannot extrapolate and will repeat boundary predictions for out-of-range queries.
-
-- **Uncertainty estimates:** the 95 % conformal interval is a statistical predictive interval with marginal coverage; it is not an engineering safety factor and is not a substitute for code-prescribed material/resistance factors.
-- **Recommended use:** the ML predictions are intended as a complement to design-code formulas — useful for parameter screening, sensitivity studies, and educational purposes. Safety-critical design decisions should follow the relevant code provisions.
-
----
-
-## Acknowledgments
-
-This work was supported by the National Key R&D Program of China (Grant Nos. 2024YFC38098 and 2024YFC3809803), the Liaoning Xingliao Talents Program for Science and Technology Innovation Team (No. XLYC2404005), and the Technology Research and Development Program of Shenyang Science and Technology Bureau (Grant No. 24-213-3-33).
-
----
-
-## Citation
-
-If you use FRP-ShearPred in your research, please cite the following SoftwareX article:
-
-```bibtex
-@article{liang2026frpshearpred,
-  author  = {Liang, Deyu and Cao, Jingwen and Liu, Jinlong and
-             Cui, Yujun and Zhang, Yuzhuo and Xue, Xingwei and Xu, Lei},
-  title   = {{FRP-ShearPred}: An open-source platform for shear capacity
-             prediction of stirrup-free {FRP}-reinforced concrete beams
-             integrating design codes and ensemble machine learning},
-  journal = {SoftwareX},
-  volume  = {35},
-  year    = {2026},
-  pages   = {102811},
-  doi     = {10.1016/j.softx.2026.102811},
-}
-```
-
-If you use the software itself (the released code/binaries), you may additionally cite the Zenodo archive:
-
-```bibtex
-@software{liang2026frpshearpred_software,
-  author  = {Liang, Deyu and Cao, Jingwen and Liu, Jinlong and
-             Cui, Yujun and Zhang, Yuzhuo and Xue, Xingwei and Xu, Lei},
-  title   = {{FRP-ShearPred}},
-  year    = {2026},
-  doi     = {10.5281/zenodo.19503522},
-}
-```
-
----
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+MIT License. See [`LICENSE`](LICENSE).
